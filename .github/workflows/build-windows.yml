@@ -12,7 +12,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
@@ -26,7 +26,7 @@ jobs:
       run: flutter build windows --release
       
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Windows-Executable
-        path: build/windows/runner/Release/*.exe
+        path: build/windows/runner/Release/
