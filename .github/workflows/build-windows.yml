@@ -17,17 +17,30 @@ jobs:
       uses: subosito/flutter-action@v2
       with:
         channel: stable
+        cache: true
+        cache-key: flutter-windows-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
         
     - name: Install dependencies
       run: flutter pub get
       
     - name: Build Windows EXE
       run: |
+        echo "Building Windows executable..."
         flutter build windows --release
-        echo "Build completed!"
-        dir build/windows/x64/runner/Release/
+        echo "✅ Build completed!"
       
-    - name: Upload Artifact
+    - name: Verify Build Files
+      run: |
+        echo "Checking build directory..."
+        if exist build\windows\x64\runner\Release (
+          echo "✅ Release folder exists"
+          dir build\windows\x64\runner\Release\
+        ) else (
+          echo "❌ Release folder not found"
+          dir build\windows\
+        )
+      
+    - name: Upload Executable
       uses: actions/upload-artifact@v4
       with:
         name: RMN-Accounts-Windows
