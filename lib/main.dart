@@ -1,5 +1,5 @@
 // import 'dart:io';
-
+// THIS IS A COMPLETE PROJECT SO YOU CAN USE IT FOR ANYONE
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/adapters.dart';
@@ -167,3 +167,4 @@ class _AuthWrapperState extends State<AuthWrapper> {
     );
   }
 }
+
