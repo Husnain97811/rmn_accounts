@@ -10,6 +10,12 @@ class CashFlowTransaction {
   final double? commission;
   final int? walletTransactionId;
 
+  bool get isEmployeeRelated {
+    return category.toLowerCase() == 'commission' ||
+        category.toLowerCase() == 'advance' ||
+        category.toLowerCase() == 'full_salary';
+  }
+
   CashFlowTransaction({
     required this.id,
     required this.type,

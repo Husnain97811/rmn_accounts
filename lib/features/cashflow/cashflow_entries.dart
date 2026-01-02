@@ -77,6 +77,8 @@ class _CashFlowEntriesScreenState extends State<CashFlowEntriesScreen>
                                   transaction:
                                       provider.filteredTransactions[index],
                                 ),
+
+                            // if i delete employee commission paid transaction, it should reverse operation like deduct the deleted transaction amount from commission paid and re add to  the commission_unpaid from employee
                             onDelete:
                                 () => provider.deleteTransaction(
                                   int.parse(
@@ -116,15 +118,18 @@ class _CashFlowEntriesScreenState extends State<CashFlowEntriesScreen>
             details: [
               DetailRow(
                 label: 'Amount:',
-                value: '${transaction.amount.toStringAsFixed(2)}',
+                value: transaction.amount.toStringAsFixed(2),
               ),
+
+              if (transaction.employeeId != null)
+                DetailRow(
+                  label: 'Employee Commision:',
+                  value: transaction.commission.toString(),
+                ),
+
               DetailRow(label: 'Type:', value: transaction.type.toUpperCase()),
               DetailRow(label: 'Category:', value: transaction.category),
-              if (transaction.description.isNotEmpty)
-                DetailRow(
-                  label: 'Description:',
-                  value: transaction.description,
-                ),
+              DetailRow(label: 'Description:', value: transaction.description),
               DetailRow(
                 label: 'Date:',
                 value: DateFormatters.formatFullDate(transaction.date),

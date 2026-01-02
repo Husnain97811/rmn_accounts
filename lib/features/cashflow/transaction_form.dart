@@ -20,7 +20,7 @@ class TransactionFormState extends State<TransactionForm> {
   late final GlobalKey<FormState> formKey;
   bool _isEditing = false;
   late DateTime _selectedDate;
-  late bool _showEmployeeFields; // Manage locally instead of through provider
+  late bool _showEmployeeFields;
 
   @override
   void initState() {
@@ -32,9 +32,11 @@ class TransactionFormState extends State<TransactionForm> {
     formKey = GlobalKey<FormState>();
 
     _selectedDate = widget.transaction?.date ?? DateTime.now();
+
+    // FIXED: Better initialization for employee fields
     _showEmployeeFields =
-        widget.transaction?.employeeId !=
-        null; // Initialize based on transaction
+        widget.transaction?.employeeId != null &&
+        widget.transaction?.employeeId!.isNotEmpty == true;
 
     // Reset provider state
     final provider = Provider.of<CashFlowProvider>(context, listen: false);
@@ -47,16 +49,19 @@ class TransactionFormState extends State<TransactionForm> {
       amountController.text = t.amount.toString();
       descriptionController.text = t.description;
 
-      // Initialize employee fields if applicable
-      if (t.employeeId != null) {
+      // FIXED: Initialize employee fields properly
+      if (t.employeeId != null && t.employeeId!.isNotEmpty) {
         employeeIdController.text = t.employeeId!;
         commissionController.text = t.commission?.toString() ?? '';
+
+        // Also update provider's employee verification
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          provider.verifyEmployee(t.employeeId!); // Verify employee
+        });
       }
     }
   }
 
-  // Function to show date picker
-  // Date picker function
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -77,6 +82,7 @@ class TransactionFormState extends State<TransactionForm> {
     descriptionController.dispose();
     employeeIdController.dispose();
     commissionController.dispose();
+
     super.dispose();
   }
 
@@ -238,11 +244,19 @@ class TransactionFormState extends State<TransactionForm> {
                         onChanged: (value) {
                           setState(() {
                             _showEmployeeFields = value ?? false;
+
+                            // FIXED: Clear fields when unchecked
+                            if (!_showEmployeeFields) {
+                              employeeIdController.clear();
+                              commissionController.clear();
+                              provider
+                                  .clearSelectedEmployee(); // Add this method to your provider
+                            }
                           });
                         },
                       ),
 
-                    // CHANGED: Use local state for employee fields
+                    // FIXED: Updated logic for employee fields
                     if (_showEmployeeFields &&
                         provider.selectedType == 'income') ...[
                       SizedBox(height: 2.h),
@@ -253,14 +267,26 @@ class TransactionFormState extends State<TransactionForm> {
                         suffixIcon: IconButton(
                           icon: Icon(Icons.search),
                           onPressed: () async {
-                            if (employeeIdController.text.isEmpty) return;
+                            if (employeeIdController.text.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Please enter Employee ID'),
+                                ),
+                              );
+                              return;
+                            }
                             try {
                               await provider.verifyEmployee(
                                 employeeIdController.text,
                               );
+                              if (provider.selectedEmployee == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Employee not found')),
+                                );
+                              }
                             } catch (e) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Employee not found')),
+                                SnackBar(content: Text('Error: $e')),
                               );
                             }
                           },
@@ -274,9 +300,28 @@ class TransactionFormState extends State<TransactionForm> {
                       ),
                       if (provider.selectedEmployee != null) ...[
                         SizedBox(height: 1.h),
-                        Text(
-                          'Employee: ${provider.selectedEmployee}',
-                          style: TextStyle(color: Colors.green),
+                        Container(
+                          padding: EdgeInsets.all(8.sp),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(8.sp),
+                            border: Border.all(color: Colors.green.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.check_circle, color: Colors.green),
+                              SizedBox(width: 2.w),
+                              Expanded(
+                                child: Text(
+                                  'Employee: ${provider.selectedEmployee}',
+                                  style: TextStyle(
+                                    color: Colors.green.shade800,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                       SizedBox(height: 2.h),
@@ -288,9 +333,11 @@ class TransactionFormState extends State<TransactionForm> {
                           decimal: true,
                         ),
                         validator: (value) {
-                          if (value?.isEmpty ?? true)
+                          if (_showEmployeeFields && (value?.isEmpty ?? true))
                             return 'Please enter commission';
-                          if (double.tryParse(value!) == null)
+                          if (value != null &&
+                              value.isNotEmpty &&
+                              double.tryParse(value) == null)
                             return 'Invalid amount';
                           return null;
                         },
@@ -300,61 +347,78 @@ class TransactionFormState extends State<TransactionForm> {
                     ElevatedButton(
                       onPressed: () async {
                         if (formKey.currentState?.validate() ?? false) {
-                          // CHANGED: Use local state for validation
-                          if (_showEmployeeFields &&
-                              provider.selectedEmployee == null) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Please verify employee ID'),
-                              ),
-                            );
-                            return;
+                          // FIXED: Proper validation for employee fields
+                          if (_showEmployeeFields) {
+                            if (employeeIdController.text.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Please enter Employee ID'),
+                                ),
+                              );
+                              return;
+                            }
+                            if (provider.selectedEmployee == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Please verify employee ID first',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            if (commissionController.text.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Please enter commission amount',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
                           }
+
                           final loadingProvider =
                               context.read<LoadingProvider>();
                           try {
                             loadingProvider.startLoading();
+
+                            // FIXED: Prepare employee data properly
+                            String? employeeId;
+                            int? commission;
+
+                            if (_showEmployeeFields) {
+                              employeeId = employeeIdController.text;
+                              commission = int.tryParse(
+                                commissionController.text,
+                              );
+                            }
+
                             if (_isEditing) {
                               // UPDATE EXISTING TRANSACTION
                               await provider.updateTransaction(
                                 id: widget.transaction!.id,
                                 amount: double.parse(amountController.text),
                                 description: descriptionController.text,
-                                employeeId: employeeIdController.text,
-                                commission:
-                                    commissionController.text.isNotEmpty
-                                        ? int.tryParse(
-                                          commissionController.text,
-                                        )
-                                        : null,
+                                employeeId: employeeId,
+                                commission: commission,
                                 incentives:
-                                    commissionController.text.isNotEmpty
-                                        ? int.tryParse(
-                                          commissionController.text,
-                                        )
-                                        : null,
-                                date: _selectedDate, // Add date to create
+                                    commission, // Are incentives same as commission?
+                                date: _selectedDate,
                               );
                             } else {
                               await provider.submitTransaction(
                                 amount: double.parse(amountController.text),
                                 description: descriptionController.text,
-                                employeeId: employeeIdController.text,
-                                commission:
-                                    commissionController.text.isNotEmpty
-                                        ? int.tryParse(
-                                          commissionController.text,
-                                        )
-                                        : null,
+                                employeeId: employeeId,
+                                commission: commission,
                                 incentives:
-                                    commissionController.text.isNotEmpty
-                                        ? int.tryParse(
-                                          commissionController.text,
-                                        )
-                                        : null,
-                                date: _selectedDate, // Add date to create
+                                    commission, // Are incentives same as commission?
+                                date: _selectedDate,
                               );
                             }
+
                             // Clear all form fields
                             amountController.clear();
                             descriptionController.clear();
@@ -363,18 +427,23 @@ class TransactionFormState extends State<TransactionForm> {
 
                             // Reset form state
                             provider.setSelectedCategory(null);
-                            provider.setShowEmployeeFields(false);
+                            setState(() {
+                              _showEmployeeFields = false;
+                            });
+
                             Navigator.pop(context);
                             SupabaseExceptionHandler.showSuccessSnackbar(
                               context,
-                              'Transaction added successfully',
+                              _isEditing
+                                  ? 'Transaction updated successfully'
+                                  : 'Transaction added successfully',
                             );
                           } catch (e) {
                             SupabaseExceptionHandler.showErrorSnackbar(
                               context,
-                              'Something Went Wrong\n Contact Develoeper $e',
+                              'Error: $e',
                             );
-                            print(e);
+                            print('Transaction error: $e');
                           } finally {
                             loadingProvider.stopLoading();
                           }
@@ -388,7 +457,7 @@ class TransactionFormState extends State<TransactionForm> {
                         ),
                       ),
                       child: Text(
-                        'Submit',
+                        _isEditing ? 'Update' : 'Submit',
                         style: TextStyle(fontSize: 12.sp, color: Colors.white),
                       ),
                     ),

@@ -29,6 +29,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
   bool _isLoading = true;
   final TextEditingController _userIdController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _commissionController = TextEditingController();
   final TextEditingController _advanceDeductController =
       TextEditingController();
   final TextEditingController _hraController = TextEditingController();
@@ -48,6 +49,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
   Map<String, dynamic>? _selectedEmployee;
   double? _unpaidSalary;
   double? _finalUnpaidSalary;
+  double? _unpaidCommission;
   bool _resetAdvance = false;
   double? _currentAdvance;
 
@@ -65,10 +67,13 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
   Future<void> _fetchEmployees() async {
     setState(() => _isLoading = true);
     try {
+      //here show inactive employees at bottom on checking status. show hr manager or managers at top
       final response = await _supabase
           .from('employers')
           .select('*')
-          .order('created_at', ascending: false);
+          // .order('created_at', ascending: false)
+          .order('status', ascending: true)
+          .order('designation', ascending: true);
       setState(() {
         _employees = List<Map<String, dynamic>>.from(response);
         _isLoading = false;
@@ -77,7 +82,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       setState(() => _isLoading = false);
       SupabaseExceptionHandler.showErrorSnackbar(
         context,
-        'Error Fetching Employees\n Check your Connnectivity',
+        'Error Fetching Employees\n Check your Connnectivity/ \n OR \n ${e.toString()}',
       );
     }
   }
@@ -442,10 +447,10 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                   title: Text('Full Salary'),
                   onTap: () => _showPaymentDialog(paymentType: 'full_salary'),
                 ),
-                // ListTile(
-                //   title: Text('Commission'),
-                //   onTap: () => _showPaymentDialog(paymentType: 'commission'),
-                // ),
+                ListTile(
+                  title: Text('Commission'),
+                  onTap: () => _showPaymentDialog(paymentType: 'commission'),
+                ),
                 ListTile(
                   title: Text('Advance'),
                   onTap: () => _showPaymentDialog(paymentType: 'advance'),
@@ -465,7 +470,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
             builder: (context, setState) {
               if (paymentType == 'full_salary') {
                 _amountController.text =
-                    _unpaidSalary?.toStringAsFixed(2) ?? '0.00';
+                    _unpaidSalary?.toStringAsFixed(1) ?? '0.00';
               }
 
               return AlertDialog(
@@ -502,12 +507,13 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         SizedBox(height: 5.sp),
                         Text('Name: ${_selectedEmployee!['name']}'),
                         Text('Unpaid Salary:  $_finalUnpaidSalary'),
+                        Text('Unpaid Commission:  $_unpaidCommission'),
                         SizedBox(height: 15.sp),
 
                         Text(
                           'Advance Issued: ${_selectedEmployee!['advance_amount']?.toStringAsFixed(0) ?? '0.00'}',
                           style: TextStyle(
-                            fontSize: 12.sp,
+                            fontSize: 11.sp,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -549,6 +555,31 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                           //   ),
                           //   keyboardType: TextInputType.number,
                           // ),
+
+                          // ADDED: Commission field for salary payment
+                          SizedBox(height: 15.sp),
+
+                          // ADD Commission field if there's unpaid commission
+                          if (_unpaidCommission != null &&
+                              _unpaidCommission! > 0) ...[
+                            TextFormField(
+                              controller: _commissionController,
+                              decoration: InputDecoration(
+                                labelText: 'Commission to Pay',
+                                hintText: 'Enter commission amount to pay',
+                              ),
+                              keyboardType: TextInputType.number,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) return null;
+                                final amount = double.tryParse(value);
+                                if (amount == null) return 'Invalid amount';
+                                if (amount > _unpaidCommission!)
+                                  return 'Exceeds unpaid commission';
+                                return null;
+                              },
+                            ),
+                          ],
+                          SizedBox(height: 15.sp),
                           TextFormField(
                             controller: _otherController,
                             decoration: InputDecoration(
@@ -632,14 +663,14 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                             ),
                             keyboardType: TextInputType.number,
                           ),
-                          TextFormField(
-                            controller: _pfController,
-                            decoration: InputDecoration(
-                              labelText: 'PF Deduction',
-                              hintText: 'Enter PF deduction',
-                            ),
-                            keyboardType: TextInputType.number,
-                          ),
+                          // TextFormField(
+                          //   controller: _pfController,
+                          //   decoration: InputDecoration(
+                          //     labelText: 'PF Deduction',
+                          //     hintText: 'Enter PF deduction',
+                          //   ),
+                          //   keyboardType: TextInputType.number,
+                          // ),
                           SizedBox(height: 5.sp),
                         ],
 
@@ -694,15 +725,17 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
               .eq('employee_id', userId)
               .single();
 
-      // FETCH UUID FROM EMPLOYERS USING EMPLOYEE_ID
-      final useruuid = response['id'];
-
       setState(() {
         _selectedEmployee = response;
         _unpaidSalary = (response['unpaid_salary'] ?? 0).toDouble();
+        _unpaidCommission = (response['commission_unpaid'] ?? 0).toDouble();
         _finalUnpaidSalary =
             (response['unpaid_salary'] ?? 0).toDouble() +
             (response['incentives'] ?? 0).toDouble();
+
+        // Set commission controller to unpaid commission value
+        _commissionController.text =
+            _unpaidCommission?.toStringAsFixed(0) ?? '0';
       });
     } catch (e) {
       ScaffoldMessenger.of(
@@ -722,104 +755,199 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       final employeeResponse =
           await _supabase
               .from('employers')
-              .select('id, advance_amount, unpaid_salary')
+              .select(
+                'id, advance_amount, unpaid_salary, commission_unpaid, incentives',
+              )
               .eq('employee_id', _userIdController.text)
               .single();
 
       final employeeUuid = employeeResponse['id'] as String;
       double currentAdvance =
           (employeeResponse['advance_amount'] ?? 0.0).toDouble();
-
       final currentUnpaid =
           (employeeResponse['unpaid_salary'] ?? 0.0).toDouble();
+      final currentCommissionUnpaid =
+          (employeeResponse['commission_unpaid'] ?? 0.0).toDouble();
+      final currentIncentives =
+          (employeeResponse['incentives'] ?? 0.0).toDouble();
+
       double advanceDeduction = 0.0;
+      double commissionPaidNow = 0.0;
 
-      if (paymentType == 'full_salary' && _resetAdvance) {
-        advanceDeduction =
-            double.tryParse(_advanceDeductController.text) ?? 0.0;
+      if (paymentType == 'full_salary') {
+        // Get commission payment from the controller
+        commissionPaidNow = double.tryParse(_commissionController.text) ?? 0.0;
 
-        // Validate deduction amount
-        if (advanceDeduction > currentAdvance) {
+        // Validate commission payment
+        if (commissionPaidNow > currentCommissionUnpaid) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Deduction exceeds advance amount')),
+            SnackBar(
+              content: Text('Commission payment exceeds unpaid commission'),
+            ),
           );
           return;
         }
 
-        // Update advance amount in employer record
-        currentAdvance -= advanceDeduction;
-        await _supabase
-            .from('employers')
-            .update({'advance_amount': currentAdvance})
-            .eq('employee_id', _userIdController.text);
-      }
+        // Update commission in database if commission is being paid
+        if (commissionPaidNow > 0) {
+          final newCommissionUnpaid =
+              currentCommissionUnpaid - commissionPaidNow;
+          await _supabase
+              .from('employers')
+              .update({'commission_unpaid': newCommissionUnpaid})
+              .eq('employee_id', _userIdController.text);
+        }
 
-      if (paymentType == 'advance') {
-        // Update advance amount
-        await _supabase
-            .from('employers')
-            .update({'advance_amount': currentAdvance + amount})
-            .eq('employee_id', _userIdController.text);
-      } else if (paymentType == 'full_salary') {
-        // Update unpaid salary for salary/commission
-        final adjustedAmount = amount! - advanceDeduction;
-        final newUnpaid = amount - (_unpaidSalary ?? 0.0);
-        final isFullPayment = paymentType == 'full_salary' && newUnpaid == 0;
-        await _supabase
-            .from('employers')
-            .update({
-              'incentives': 0.0, // Reset incentives on full salary payment
-              'unpaid_salary': newUnpaid,
-              'is_salary_paid': isFullPayment ? true : (newUnpaid == 0),
-            })
-            .eq('employee_id', _userIdController.text);
-      } else {
-        final adjustedAmount = amount! - advanceDeduction;
-        final newUnpaid = amount - (_unpaidSalary ?? 0.0);
-        final isFullPayment = paymentType == 'full_salary' && newUnpaid == 0;
-        await _supabase
-            .from('employers')
-            .update({
-              'unpaid_salary': newUnpaid,
-              'is_salary_paid': isFullPayment ? true : (newUnpaid == 0),
-            })
-            .eq('employee_id', _userIdController.text);
-      }
-      // Record in paid_salaries
-      await _supabase.from('paid_salaries').insert({
-        'employee_id': _userIdController.text.toLowerCase(),
-        'amount': amount,
-        'payment_date': DateTime.now().toIso8601String(),
-        'type': paymentType,
-      });
+        // Parse all the allowance and deduction amounts for net pay calculation
+        double otherAllowanceAmount =
+            double.tryParse(_otherController.text) ?? 0.0;
+        double lateFineAmount =
+            double.tryParse(_lateFineController.text) ?? 0.0;
+        double absentFineAmount =
+            double.tryParse(_absentFineController.text) ?? 0.0;
+        double loanAmount = double.tryParse(_loanController.text) ?? 0.0;
+        double medicalInsuranceDeductionAmount =
+            double.tryParse(_medicalInsuranceController.text) ?? 0.0;
+        double pfDeductionAmount = double.tryParse(_pfController.text) ?? 0.0;
 
-      // Record in cash_flow_transactions
-      // Record in cash_flow_transactions
-      String description =
-          '${paymentType.toUpperCase().replaceAll('_', ' ')} to ${_selectedEmployee!['name']} (ID: ${_userIdController.text})';
+        if (_resetAdvance) {
+          advanceDeduction =
+              double.tryParse(_advanceDeductController.text) ?? 0.0;
 
-      final currentUser = _supabase.auth.currentUser;
-      if (currentUser != null) {
-        await _supabase.from('cash_flow_transactions').insert({
-          'user_id': currentUser.id, // Use admin's user ID
+          if (advanceDeduction > currentAdvance) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Deduction exceeds advance amount')),
+            );
+            return;
+          }
+
+          // Update advance amount in employer record
+          currentAdvance -= advanceDeduction;
+          await _supabase
+              .from('employers')
+              .update({'advance_amount': currentAdvance})
+              .eq('employee_id', _userIdController.text);
+        }
+
+        // Calculate net pay (same as in PDF)
+        double basicSalary =
+            (employeeResponse['unpaid_salary'] ?? 0.0).toDouble();
+        double hraAmount = (employeeResponse['hra_amount'] ?? 0.0).toDouble();
+        double medicalAllowanceAmount =
+            (employeeResponse['medical_allowance'] ?? 0.0).toDouble();
+        double conveyanceAllowanceAmount =
+            (employeeResponse['conveyance_allowance'] ?? 0.0).toDouble();
+        double incentiveAmount =
+            (employeeResponse['incentives'] ?? 0.0).toDouble();
+
+        // Determine whether to use commission or incentive
+        bool hasUnpaidCommission = currentCommissionUnpaid > 0;
+        double commissionOrIncentiveAmount =
+            hasUnpaidCommission ? commissionPaidNow : incentiveAmount;
+
+        // Total earnings calculation
+        double totalEarnings =
+            basicSalary +
+            hraAmount +
+            medicalAllowanceAmount +
+            conveyanceAllowanceAmount +
+            commissionOrIncentiveAmount +
+            otherAllowanceAmount;
+
+        // Total deductions calculation
+        double totalDeductions =
+            lateFineAmount +
+            absentFineAmount +
+            advanceDeduction +
+            loanAmount +
+            medicalInsuranceDeductionAmount +
+            pfDeductionAmount;
+
+        // Net pay calculation (same as PDF) - THIS IS WHAT SHOWS ON PDF
+        double netPay = totalEarnings - totalDeductions;
+
+        // Record in paid_salaries
+        await _supabase.from('paid_salaries').insert({
           'employee_id': _userIdController.text.toLowerCase(),
-          'amount': amount,
-          'description': description,
-          'date': DateTime.now().toIso8601String(),
-          'category': paymentType,
-          'type': 'expense',
+          'amount': paymentType == 'commission' ? commissionPaidNow : netPay,
+          'payment_date': DateTime.now().toIso8601String(),
+          'type': paymentType == 'commission' ? 'commission' : paymentType,
         });
 
-        // Generate slip for full salary
+        // Record in cash_flow_transactions
+        String description =
+            '${paymentType.toUpperCase().replaceAll('_', ' ')} to ${_selectedEmployee!['name']} (ID: ${_userIdController.text})';
+        if (paymentType == 'commission') {
+          description =
+              'COMMISSION PAYMENT to ${_selectedEmployee!['name']} (ID: ${_userIdController.text})';
+        }
+
+        final currentUser = _supabase.auth.currentUser;
+        if (currentUser != null) {
+          // For commission-only payments, record as expense
+          await _supabase.from('cash_flow_transactions').insert({
+            'user_id': currentUser.id,
+            'employee_id': _userIdController.text.toLowerCase(),
+
+            'amount': paymentType == 'commission' ? commissionPaidNow : netPay,
+            'description': description,
+            'date': DateTime.now().toIso8601String(),
+            'category':
+                paymentType == 'commission' ? 'commission' : paymentType,
+            'type': 'expense',
+          });
+
+          // Update unpaid salary
+          final adjustedAmount = amount - advanceDeduction;
+          final newUnpaid = currentUnpaid - amount;
+          final isFullPayment = newUnpaid <= 0;
+
+          await _supabase
+              .from('employers')
+              .update({
+                'unpaid_salary': newUnpaid > 0 ? newUnpaid : 0,
+                'is_salary_paid': isFullPayment,
+                'incentives': 0.0, // Reset incentives on full salary payment
+              })
+              .eq('employee_id', _userIdController.text);
+        } else if (paymentType == 'commission') {
+          // Handle commission payment only
+          if (amount > currentCommissionUnpaid) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Cannot pay more than unpaid commission')),
+            );
+            return;
+          }
+
+          commissionPaidNow = amount;
+          final newCommissionUnpaid =
+              currentCommissionUnpaid - commissionPaidNow;
+
+          await _supabase
+              .from('employers')
+              .update({'commission_unpaid': newCommissionUnpaid})
+              .eq('employee_id', _userIdController.text);
+        } else if (paymentType == 'advance') {
+          // Update advance amount
+          await _supabase
+              .from('employers')
+              .update({'advance_amount': currentAdvance + amount})
+              .eq('employee_id', _userIdController.text);
+        }
+
+        // Generate salary slip for full salary
         if (paymentType == 'full_salary') {
           await _generateSalarySlip(
             employee: _selectedEmployee!,
-            amount: amount!,
+            amount: amount,
             paymentType: 'Full Salary',
-            remainingUnpaid: currentUnpaid - amount!,
-            advanceDeduction: advanceDeduction, // Pass deduction to slip
+            remainingUnpaid: currentUnpaid - amount,
+            advanceDeduction: advanceDeduction,
+            totalCommissionUnpaid:
+                currentCommissionUnpaid, // Pass total unpaid commission (before payment)
+            commissionPaidNow:
+                commissionPaidNow, // Pass commission being paid now
             scaffoldContext: context,
-            // remainingAdvance: double.tryParse(_advanceDeductController.text) ?? 0.0
           );
         }
 
@@ -828,7 +956,11 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         _clearFields();
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Payment processed successfully')),
+          SnackBar(
+            content: Text(
+              '${paymentType.replaceAll('_', ' ')} processed successfully',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -844,6 +976,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     _amountController.clear();
     _selectedEmployee = null;
     _unpaidSalary = null;
+    _unpaidCommission = null; // ADDED
     _hraController.clear();
     _medicalController.clear();
     _conveyanceController.clear();
@@ -860,13 +993,11 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
   }
 
   Future<void> _generateSalarySlip({
-    required BuildContext
-    scaffoldContext, // Pass the Scaffold's context for Snackbars
+    required BuildContext scaffoldContext,
     required Map<String, dynamic> employee,
-    required double
-    amount, // This 'amount' might be the netPay or the amount *actually* paid
-    required String paymentType, // You can use this if needed
-    required double remainingUnpaid, // You can use this if needed
+    required double amount,
+    required String paymentType,
+    required double remainingUnpaid,
     // addons
     double hraAmount = 0.0,
     double medicalAllowanceAmount = 0.0,
@@ -880,25 +1011,17 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     double medicalInsuranceDeductionAmount = 0.0,
     double pfDeductionAmount = 0.0,
     double advanceDeduction = 0.0,
-    double Advance = 0.0,
+    // Commission parameters
+    double totalCommissionUnpaid =
+        0.0, // Total unpaid commission before this payment
+    double commissionPaidNow = 0.0, // Commission being paid in this salary slip
   }) async {
     final pdf.Document document = pw.Document();
     final lightBlue = pdf.PdfColor.fromHex('#DDEBF7');
     final tableBorder = pw.TableBorder.all(
-      color: pdf.PdfColors.black, // Lighter grey for borders
+      color: pdf.PdfColors.black,
       width: 0.7,
     );
-
-    // --- FONT LOADING (Example for Roboto - UNCOMMENT AND ADJUST IF USING) ---
-    // final fontData = await rootBundle.load("assets/fonts/Roboto-Regular.ttf");
-    // final ttfRegular = pw.TtfFont(fontData);
-    // final fontBoldData = await rootBundle.load("assets/fonts/Roboto-Bold.ttf");
-    // final ttfBold = pw.TtfFont(fontBoldData);
-    //
-    // baseStyle = pw.TextStyle(font: ttfRegular, fontSize: 9);
-    // boldStyle = pw.TextStyle(font: ttfBold, fontSize: 9);
-    // companyNameStyle = pw.TextStyle(font: ttfBold, fontSize: 20);
-    // headerCellStyle = pw.TextStyle(font: ttfBold, fontSize: 10, color: PdfColors.black); // Header cells often black
 
     // If not using custom fonts, define some basic styles:
     final baseStyle = pw.TextStyle(fontSize: 12);
@@ -941,7 +1064,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
             return defaultValue;
           date = DateTime.parse(dateValue);
         } catch (e) {
-          return dateValue; // Return original string if parsing fails (might be already formatted)
+          return dateValue;
         }
       } else if (dateValue is DateTime) {
         date = dateValue;
@@ -950,12 +1073,12 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     }
 
     String _formatCurrency(double value) {
-      // You might want a more sophisticated currency formatter
       return value.toStringAsFixed(2);
     }
 
     // Calculate values with null safety
     final double basicSalary = (employee['salary'] ?? 0.0).toDouble();
+    final double unpaidSalary = (employee['unpaid_salary'] ?? 0.0).toDouble();
     final double hraAmount = (employee['hra_amount'] ?? 0.0).toDouble();
     final double medicalAllowanceAmount =
         (employee['medical_allowance'] ?? 0.0).toDouble();
@@ -965,24 +1088,34 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     final double otherAllowanceAmount =
         double.tryParse(_otherController.text) ?? 0.0;
 
+    // Commission calculations
+    final bool hasUnpaidCommission = totalCommissionUnpaid > 0;
+    final double balanceCommission = totalCommissionUnpaid - commissionPaidNow;
+
+    // Calculate total earnings - Use commissionPaidNow if there's unpaid commission, otherwise incentive
+    // IMPORTANT: Always show commissionPaidNow in earnings when paying commission
+    final double commissionOrIncentiveAmount =
+        hasUnpaidCommission ? commissionPaidNow : incentiveAmount;
+
     final totalEarnings =
-        basicSalary +
-        (hraAmount ?? 0.0) +
+        unpaidSalary +
+        hraAmount +
         medicalAllowanceAmount +
         conveyanceAllowanceAmount +
-        incentiveAmount +
+        commissionOrIncentiveAmount +
         otherAllowanceAmount;
 
+    // Get deduction amounts
     final double lateFineAmount =
         double.tryParse(_lateFineController.text) ?? 0.0;
     final double absentFineAmount =
         double.tryParse(_absentFineController.text) ?? 0.0;
-    final double advanceAmount = (employee['advance_amount'] ?? 0.0).toDouble();
     final double loanAmount = double.tryParse(_loanController.text) ?? 0.0;
     final double medicalInsuranceDeductionAmount =
         double.tryParse(_medicalInsuranceController.text) ?? 0.0;
     final double pfDeductionAmount = double.tryParse(_pfController.text) ?? 0.0;
 
+    // Calculate total deductions (NO commission in deductions)
     final totalDeductions =
         lateFineAmount +
         absentFineAmount +
@@ -1006,10 +1139,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         child: pw.Row(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.SizedBox(
-              width: 90, // Fixed width for labels for alignment
-              child: pw.Text('$label:', style: boldStyle),
-            ),
+            pw.SizedBox(width: 90, child: pw.Text('$label:', style: boldStyle)),
             pw.SizedBox(width: 5),
             pw.Expanded(child: pw.Text(value, style: baseStyle)),
           ],
@@ -1022,6 +1152,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       String label,
       double value, {
       bool isBold = false,
+      bool isTotal = false,
     }) {
       return pw.TableRow(
         children: [
@@ -1075,16 +1206,22 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     }
 
     // Helper to build rows for Earnings & Deductions
-    List<pw.TableRow> _buildEarningsDeductionsRows(Map<String, dynamic> emp) {
+    List<pw.TableRow> _buildEarningsDeductionsRows() {
+      // Earnings array - show Commission if has unpaid commission, otherwise Incentive
       final earnings = [
-        {'label': 'Basic Salary', 'value': basicSalary},
+        {'label': 'Salary', 'value': unpaidSalary},
         {'label': 'HRA', 'value': hraAmount},
         {'label': 'Medical Allow', 'value': medicalAllowanceAmount},
         {'label': 'Conveyance Allow', 'value': conveyanceAllowanceAmount},
-        {'label': 'Incentive', 'value': incentiveAmount},
+        {
+          'label': hasUnpaidCommission ? 'Commission' : 'Incentive',
+          'value':
+              commissionPaidNow, // This shows the actual commission being paid
+        },
         {'label': 'Other Allow', 'value': otherAllowanceAmount},
       ];
 
+      // Deductions array - NO commission in deductions
       final deductions = [
         {'label': 'Late Fine', 'value': lateFineAmount},
         {'label': 'Absent Fine', 'value': absentFineAmount},
@@ -1136,7 +1273,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
           pw.Text(text, style: baseStyle),
           pw.Container(
             height: 0.5,
-            width: lineWidth, // Adjust width as needed
+            width: lineWidth,
             color: pdf.PdfColors.black,
           ),
         ],
@@ -1148,8 +1285,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       return pw.Column(
         children: [
           pw.Container(
-            width: 120, // Adjust width as needed
-            height: 8, // Space for signature
+            width: 120,
+            height: 8,
             decoration: pw.BoxDecoration(
               border: pw.Border(
                 top: pw.BorderSide(color: pdf.PdfColors.black, width: 0.5),
@@ -1179,14 +1316,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                       'Reliable Marketing Network',
                       style: companyNameStyle,
                     ),
-                    // pw.Spacer(),
-                    pw.Text(
-                      'Pvt Ltd.',
-                      style: pw.TextStyle(
-                        fontSize: 12,
-                        // fontStyle: pw.FontStyle.italic,
-                      ),
-                    ), // Adjusted size
+                    pw.Text('Pvt Ltd.', style: pw.TextStyle(fontSize: 12)),
                   ],
                 ),
                 pw.SizedBox(height: 40),
@@ -1222,7 +1352,6 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                 pw.Container(
                   decoration: pw.BoxDecoration(
                     border: pw.Border.all(),
-
                     color: lightBlue,
                   ),
                   width: double.infinity,
@@ -1237,16 +1366,14 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                       fontWeight: pw.FontWeight.bold,
                       fontSize: 14,
                       color: pdf.PdfColors.black,
-                    ), // Darker text on light blue
+                    ),
                   ),
                 ),
 
-                pw.SizedBox(height: 5), // Reduced space
+                pw.SizedBox(height: 5),
                 // Employee Details using Row and Column
                 pw.Container(
-                  decoration: pw.BoxDecoration(
-                    border: tableBorder,
-                  ), // Outer border for the block
+                  decoration: pw.BoxDecoration(border: tableBorder),
                   padding: const pw.EdgeInsets.symmetric(
                     vertical: 2,
                     horizontal: 4,
@@ -1286,13 +1413,13 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                           ],
                         ),
                       ),
-                      pw.SizedBox(width: 10), // Spacer
+                      pw.SizedBox(width: 10),
                       pw.Container(
                         color: pdf.PdfColors.black,
                         height: 100,
                         width: 1,
                       ),
-                      pw.SizedBox(width: 10), // Spacer
+                      pw.SizedBox(width: 10),
                       // Right Column for Contact/Bank Info
                       pw.Expanded(
                         child: pw.Column(
@@ -1331,13 +1458,58 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                 pw.Table(
                   border: tableBorder,
                   columnWidths: {
-                    0: const pw.FlexColumnWidth(2), // Label
-                    1: const pw.FlexColumnWidth(1), // Amount
+                    0: const pw.FlexColumnWidth(2),
+                    1: const pw.FlexColumnWidth(1),
                   },
                   children: [
                     _buildSummaryRow('Gross Income', totalEarnings),
                     _buildSummaryRow('Total Deduction', totalDeductions),
-                    _buildSummaryRow('Net Income', netPay, isBold: true),
+                    _buildSummaryRow(
+                      'Net Income',
+                      netPay,
+                      isBold: true,
+                      isTotal: true,
+                    ),
+                  ],
+                ),
+
+                pw.SizedBox(height: 10),
+
+                // Commission Summary Section - Show even if no commission, but with 0 values
+                pw.Container(
+                  decoration: pw.BoxDecoration(
+                    border: tableBorder,
+                    color: lightBlue,
+                  ),
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 8,
+                  ),
+                  child: pw.Text(
+                    'COMMISSION SUMMARY',
+                    style: pw.TextStyle(
+                      fontWeight: pw.FontWeight.bold,
+                      fontSize: 12,
+                      color: pdf.PdfColors.black,
+                    ),
+                  ),
+                ),
+
+                pw.Table(
+                  border: tableBorder,
+                  columnWidths: {
+                    0: const pw.FlexColumnWidth(2),
+                    1: const pw.FlexColumnWidth(1),
+                  },
+                  children: [
+                    _buildSummaryRow('Total Commission', totalCommissionUnpaid),
+                    // _buildSummaryRow('Commission Paid', commissionPaidNow),
+                    _buildSummaryRow(
+                      'Commission Balance',
+                      balanceCommission,
+                      // isBold: true,
+                    ),
                   ],
                 ),
 
@@ -1347,10 +1519,10 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                 pw.Table(
                   border: tableBorder,
                   columnWidths: {
-                    0: const pw.FlexColumnWidth(2), // Earnings Label
-                    1: const pw.FlexColumnWidth(1), // Earnings Amount
-                    2: const pw.FlexColumnWidth(2), // Deductions Label
-                    3: const pw.FlexColumnWidth(1), // Deductions Amount
+                    0: const pw.FlexColumnWidth(2),
+                    1: const pw.FlexColumnWidth(1),
+                    2: const pw.FlexColumnWidth(2),
+                    3: const pw.FlexColumnWidth(1),
                   },
                   children: [
                     pw.TableRow(
@@ -1365,11 +1537,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         _buildHeaderCell('Amount'),
                       ],
                     ),
-                    ..._buildEarningsDeductionsRows(
-                      employee,
-                    ), // Spread the list of rows
+                    ..._buildEarningsDeductionsRows(),
                     pw.TableRow(
-                      // Total Income / Total Deduction Row
                       decoration: pw.BoxDecoration(
                         color: lightBlue,
                         border: pw.Border(),
@@ -1383,18 +1552,17 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                     ),
                   ],
                 ),
+
                 pw.SizedBox(height: 5),
                 pw.Align(
                   alignment: pw.Alignment.centerRight,
                   child: pw.Container(
-                    width:
-                        context.page.pageFormat.availableWidth /
-                        2, // Half of the screen width
+                    width: context.page.pageFormat.availableWidth / 2,
                     child: pw.Table(
                       border: tableBorder,
                       columnWidths: {
-                        0: const pw.FlexColumnWidth(3), // Adjust label width
-                        1: const pw.FlexColumnWidth(2), // Adjust value width
+                        0: const pw.FlexColumnWidth(3),
+                        1: const pw.FlexColumnWidth(2),
                       },
                       children: [
                         pw.TableRow(
@@ -1428,37 +1596,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                   ),
                 ),
 
-                //     pw.TableRow(
-                //       mainAxisAlignment: pw.MainAxisAlignment.end,
-                //       children: [
-                //         pw.Padding(
-                //             padding: const pw.EdgeInsets.all(4),
-                //             child: pw.Text('Net Pay', style: boldStyle),
-                //           ),
-                //         _buildAmountCell(netPay),
-                //       ],
-                //     ),
-                // ),
-
-                // Net Pay (Separate row as per design)
-                // pw.Table(
-                //   border: tableBorder,
-                //   columnWidths: {
-                //     0: const pw.FlexColumnWidth(
-                //       4,
-                //     ), // Spanning more width for "Net Pay" label
-                //     1: const pw.FlexColumnWidth(1), // Amount
-                //   },
-                //   children: [
-                //     pw.TableRow(
-
-                //       children: [
-
-                //       ],
-                //     ),
-                //   ],
-                // ),
-                pw.SizedBox(height: 100), // More space before signatures
+                pw.SizedBox(height: 80),
                 // Signatures
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -1491,7 +1629,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
             ),
           );
         }
-        return; // Early exit if directory is null
+        return;
       }
 
       final employeeNameSanitized = _sanitizeFileName(
@@ -1535,6 +1673,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       }
     }
   }
+
   // Helper functions
   // Future<pw.Font> _loadGoogleFont(String fontName, {bool bold = false}) async {
   //   final fontData = await rootBundle.load(

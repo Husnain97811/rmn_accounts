@@ -48,13 +48,20 @@ class CashFlowProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  void clearSelectedEmployee() {
+    _selectedEmployee = null;
+    notifyListeners();
+  }
+
   double get totalIncome => _transactions
       .where((t) => t.type == 'income')
       .fold(0, (sum, t) => sum + t.amount);
 
-  double get totalExpense => _transactions
-      .where((t) => t.type == 'expense')
-      .fold(0, (sum, t) => sum + t.amount);
+  double get totalExpense {
+    return _transactions
+        .where((t) => t.type == 'expense')
+        .fold(0, (sum, t) => sum + t.amount);
+  }
 
   double get maxTransactionAmount =>
       _transactions.isEmpty
@@ -227,6 +234,47 @@ class CashFlowProvider with ChangeNotifier {
                 'updated_at': DateTime.now().toIso8601String(),
               })
               .eq('id', 1);
+        }
+      }
+
+      // BEFORE deleting the transaction, handle employee commission deduction if applicable
+      if (transactionToDelete.employeeId != null &&
+          transactionToDelete.employeeId!.isNotEmpty &&
+          transactionToDelete.commission != null &&
+          transactionToDelete.commission! > 0) {
+        // Fetch current employee data first/
+        final employeeResponse = await _supabase
+            .from('employers')
+            .select('commission_unpaid, unpaid_salary')
+            .eq('employee_id', transactionToDelete.employeeId!)
+            .single()
+            .catchError((e) {
+              print('Error fetching employee data: $e');
+              return null;
+            });
+
+        if (employeeResponse != null) {
+          final currentCommission =
+              (employeeResponse['commission_unpaid'] as num?)?.toDouble() ??
+              0.0;
+          final currentUnpaidSalary =
+              (employeeResponse['unpaid_salary'] as num?)?.toDouble() ?? 0.0;
+
+          final commissionToDeduct = transactionToDelete.commission!.toDouble();
+
+          // Calculate new values
+          final newCommission = currentCommission - commissionToDeduct;
+          final newUnpaidSalary = currentUnpaidSalary - commissionToDeduct;
+
+          // Update employee record
+          await _supabase
+              .from('employers')
+              .update({
+                'commission_unpaid': newCommission > 0 ? newCommission : 0,
+                'unpaid_salary': newUnpaidSalary > 0 ? newUnpaidSalary : 0,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('employee_id', transactionToDelete.employeeId!);
         }
       }
 
@@ -507,7 +555,7 @@ class CashFlowProvider with ChangeNotifier {
     String? employeeId,
     int? commission,
     int? incentives,
-    required DateTime date, // Add date parameter
+    required DateTime date,
   }) async {
     _isLoading = true;
     notifyListeners();
@@ -516,6 +564,10 @@ class CashFlowProvider with ChangeNotifier {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) throw Exception('User not logged in');
 
+      // FIXED: Use employeeId and commission to determine if it's employee commission
+      final bool isEmployeeCommission =
+          employeeId != null && employeeId.isNotEmpty && commission != null;
+
       final insertData = {
         'type': _selectedType,
         'amount': amount,
@@ -523,22 +575,27 @@ class CashFlowProvider with ChangeNotifier {
         'description': description,
         'date': date.toIso8601String(),
         'user_id': userId,
-        if (_showEmployeeFields) ...{
+
+        // FIXED: Always add these fields when provided (not based on _showEmployeeFields)
+        if (employeeId != null && employeeId.isNotEmpty)
           'employee_id': employeeId,
+        if (_selectedEmployee != null && _selectedEmployee!.isNotEmpty)
           'employee_name': _selectedEmployee,
-          'employee_commission': commission,
-        },
+        if (commission != null) 'employee_commission': commission,
+        // if (incentives != null) 'incentives': incentives,
       };
+
+      debugPrint('Inserting transaction data: $insertData');
 
       await _supabase.from('cash_flow_transactions').insert(insertData);
 
       // Update employee records if applicable
-      if (_showEmployeeFields && employeeId != null && commission != null) {
+      if (isEmployeeCommission) {
         try {
           final res =
               await _supabase
                   .from('employers')
-                  .select('unpaid_salary, commission')
+                  .select('unpaid_salary, commission_unpaid, incentives')
                   .eq('employee_id', employeeId)
                   .maybeSingle();
 
@@ -550,15 +607,24 @@ class CashFlowProvider with ChangeNotifier {
             await _supabase
                 .from('employers')
                 .update({
-                  'is_salary_paid': false,
-                  'incentives': currentIncentives + incentives!,
+                  // 'unpaid_salary':
+                  //     currentUnpaid +
+                  //     (commission ?? 0), // Add commission to unpaid
+                  'commission_unpaid':
+                      currentCommission +
+                      (commission ?? 0), // Add to total commission
+                  // 'is_salary_paid': false,
+                  // if (incentives != null)
+                  //   'incentives': currentIncentives + incentives,
                 })
                 .eq('employee_id', employeeId);
+
+            debugPrint('✅ Updated employer record for: $employeeId');
           } else {
-            debugPrint('No employer record found for employee: $employeeId');
+            debugPrint('⚠️ No employer record found for employee: $employeeId');
           }
         } catch (e) {
-          debugPrint('Error updating employer: $e');
+          debugPrint('❌ Error updating employer: $e');
         }
       }
 
@@ -566,8 +632,10 @@ class CashFlowProvider with ChangeNotifier {
       _selectedCategory = null;
       _showEmployeeFields = false;
       _selectedEmployee = null;
+      notifyListeners();
     } catch (e) {
-      debugPrint('Transaction submission error: $e');
+      debugPrint('❌ Transaction submission error: $e');
+      rethrow; // Important: rethrow to see error in UI
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -642,12 +710,30 @@ class CashFlowProvider with ChangeNotifier {
     }
 
     return transactions.where((t) {
-      return t.date.isAfter(startDate) &&
-          t.date.isBefore(endDate.add(Duration(days: 1))) &&
-          (reportType == 'all' ||
-              (reportType == 'Income' && t.type == 'income') ||
-              (reportType == 'Expense' && t.type == 'expense') ||
-              reportType == 'Net Cash Flow');
+      bool isInDateRange =
+          t.date.isAfter(startDate) &&
+          t.date.isBefore(endDate.add(Duration(days: 1)));
+
+      if (!isInDateRange) return false;
+
+      // For expense report - ONLY show regular expenses, NOT commissions
+      if (reportType == 'Expense') {
+        return t.type == 'expense'; // Only regular expenses, no commissions
+      }
+      // For Net Cash Flow report - include both income and regular expenses
+      // but NOT commissions as expenses
+      else if (reportType == 'Net Cash Flow') {
+        return t.type == 'income' || t.type == 'expense';
+        // Note: Commissions from income are NOT included here
+      }
+      // For income report, only show regular income transactions
+      else if (reportType == 'Income') {
+        return t.type == 'income';
+      }
+      // For 'all' report type
+      else {
+        return true;
+      }
     }).toList();
   }
 

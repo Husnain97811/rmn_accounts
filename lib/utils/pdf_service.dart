@@ -49,8 +49,21 @@ class PdfService {
         .fold(0.0, (sum, t) => sum + t.amount);
 
     double totalExpenses = transactions
-        .where((t) => t.type == 'expense')
+        .where((t) => t.type == 'expense') // Only regular expenses
         .fold(0.0, (sum, t) => sum + t.amount);
+
+    // Calculate commission from income transactions
+    // double commissionExpenses = transactions
+    //     .where(
+    //       (t) =>
+    //           t.type == 'income' &&
+    //           t.commission != null &&
+    //           t.commission! > 0 &&
+    //           (t.employeeId != null && t.employeeId!.isNotEmpty),
+    //     )
+    //     .fold(0.0, (sum, t) => sum + (t.commission ?? 0));
+
+    // double totalExpenses = regularExpenses + commissionExpenses;
 
     pdf.addPage(
       pw.MultiPage(
@@ -66,6 +79,11 @@ class PdfService {
                 ),
                 pw.SizedBox(height: 4),
                 pw.Text('$reportType Report', style: _subtitleStyle),
+                // if (commissionExpenses > 0 && reportType == 'Expense')
+                //   pw.Text(
+                //     '(Includes ${commissionExpenses.toStringAsFixed(2)} in Employee Commissions)',
+                //     style: pw.TextStyle(fontSize: 10, color: PdfColors.red),
+                //   ),
                 pw.Divider(color: primaryColor),
                 pw.SizedBox(height: 34),
               ],
@@ -92,6 +110,7 @@ class PdfService {
                 _headerStyle,
                 _contentStyle,
                 reportType,
+                // includeCommissionAsExpense: reportType == 'Expense',
               ),
           ];
         },
@@ -105,7 +124,7 @@ class PdfService {
 
     final directory = await getDownloadsDirectory();
     final file = File(
-      '${directory!.path}/${reportType}_${reportFormat}_${DateTime.now().millisecond.toString()}_report.pdf',
+      '${directory!.path}/${reportType}_${reportFormat}_${DateTime.now().millisecondsSinceEpoch}_report.pdf',
     );
     await file.writeAsBytes(await pdf.save());
     return file;
@@ -453,12 +472,58 @@ class PdfService {
 
   // ================== COMMON PDF COMPONENTS ================== //
 
-  static pw.Widget _buildNetSummary(double income, double expenses) {
-    return pw.Row(
-      mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+  static pw.Widget _buildNetSummary(
+    double totalIncome,
+    double totalExpenses,
+    // Remove commissionExpenses parameter since we're not using it
+  ) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        _buildPdfSummaryCard('Total Income', income, PdfColors.green),
-        _buildPdfSummaryCard('Total Expenses', expenses, PdfColors.red),
+        pw.Text(
+          'Financial Summary',
+          style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.SizedBox(height: 10),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('Total Income:', style: _contentStyle),
+                pw.Text('Total Expenses:', style: _contentStyle),
+                pw.Text(
+                  'Net Cash Flow:',
+                  style: _contentStyle.copyWith(fontWeight: pw.FontWeight.bold),
+                ),
+              ],
+            ),
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: [
+                pw.Text(
+                  '${totalIncome.toStringAsFixed(2)}',
+                  style: _contentStyle.copyWith(color: PdfColors.green),
+                ),
+                pw.Text(
+                  '${totalExpenses.toStringAsFixed(2)}',
+                  style: _contentStyle.copyWith(color: PdfColors.red),
+                ),
+                pw.Text(
+                  '${(totalIncome - totalExpenses).toStringAsFixed(2)}',
+                  style: _contentStyle.copyWith(
+                    color:
+                        (totalIncome - totalExpenses) >= 0
+                            ? PdfColors.green
+                            : PdfColors.red,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -472,7 +537,7 @@ class PdfService {
       width: 150,
       padding: const pw.EdgeInsets.all(10),
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: color, width: 1.5),
+        border: pw.Border.all(color: PdfColors.black, width: 1.5),
         borderRadius: pw.BorderRadius.circular(8),
       ),
       child: pw.Column(
@@ -489,12 +554,102 @@ class PdfService {
     );
   }
 
+  static pw.Widget _buildCommissionBreakdown(
+    List<CashFlowTransaction> transactions,
+  ) {
+    final commissionTransactions =
+        transactions
+            .where(
+              (t) =>
+                  t.type == 'income' &&
+                  t.commission != null &&
+                  t.commission! > 0 &&
+                  (t.employeeId != null && t.employeeId!.isNotEmpty),
+            )
+            .toList();
+
+    if (commissionTransactions.isEmpty) {
+      return pw.SizedBox.shrink();
+    }
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          'Employee Commission Breakdown:',
+          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12),
+        ),
+        pw.SizedBox(height: 10),
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.black),
+          children: [
+            pw.TableRow(
+              decoration: pw.BoxDecoration(color: PdfColors.grey200),
+              children: [
+                pw.Padding(
+                  padding: const pw.EdgeInsets.all(6),
+                  child: pw.Text('Date', style: _headerStyle),
+                ),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.all(6),
+                  child: pw.Text('Employee', style: _headerStyle),
+                ),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.all(6),
+                  child: pw.Text('Income Amount', style: _headerStyle),
+                ),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.all(6),
+                  child: pw.Text('Commission', style: _headerStyle),
+                ),
+              ],
+            ),
+            ...commissionTransactions.map((transaction) {
+              return pw.TableRow(
+                children: [
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Text(
+                      DateFormat('dd/MM/yyyy').format(transaction.date),
+                      style: _contentStyle,
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Text(
+                      transaction.employeeName ?? 'N/A',
+                      style: _contentStyle,
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Text(
+                      transaction.amount.toStringAsFixed(2),
+                      style: _contentStyle.copyWith(color: PdfColors.green),
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Text(
+                      (transaction.commission ?? 0).toStringAsFixed(2),
+                      style: _contentStyle,
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ],
+        ),
+      ],
+    );
+  }
+
   static pw.Widget _buildComparisonChart(double income, double expenses) {
     final maxValue = income > expenses ? income : expenses;
     return pw.Container(
       height: 200,
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey300),
+        border: pw.Border.all(color: PdfColors.black),
         borderRadius: pw.BorderRadius.circular(8),
       ),
       child: pw.Column(
@@ -579,7 +734,7 @@ class PdfService {
         pw.Container(
           height: 30,
           decoration: pw.BoxDecoration(
-            border: pw.Border.all(color: PdfColors.grey300),
+            border: pw.Border.all(color: PdfColors.black),
             borderRadius: pw.BorderRadius.circular(4),
           ),
           child: pw.Row(
@@ -613,11 +768,11 @@ class PdfService {
           children: [
             pw.Text(
               'Income: ${incomePercent.toStringAsFixed(1)}%',
-              style: pw.TextStyle(color: PdfColors.green, fontSize: 12),
+              style: pw.TextStyle(fontSize: 12),
             ),
             pw.Text(
               'Expenses: ${expensePercent.toStringAsFixed(1)}%',
-              style: pw.TextStyle(color: PdfColors.red, fontSize: 12),
+              style: pw.TextStyle(fontSize: 12),
             ),
           ],
         ),
@@ -630,7 +785,7 @@ class PdfService {
     return pw.Container(
       padding: const pw.EdgeInsets.all(10),
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey300),
+        border: pw.Border.all(color: PdfColors.black),
         borderRadius: pw.BorderRadius.circular(8),
       ),
       child: pw.Row(
@@ -822,61 +977,202 @@ class PdfService {
 
   static List<pw.Widget> _buildAllEntriesContent(
     List<CashFlowTransaction> transactions,
-    pw.TextStyle style,
+    pw.TextStyle headerStyle,
     pw.TextStyle contentStyle,
     String reportType,
   ) {
-    final bool showEmployee = reportType.toLowerCase() != 'expense';
+    // Create a list to hold all entries
+    List<CashFlowTransaction> allEntries = [];
 
-    double totalAmount = transactions.fold(0.0, (sum, t) => sum + t.amount);
-    double totalIncome = transactions
-        .where((t) => t.type == 'income')
-        .fold(0.0, (sum, t) => sum + t.amount);
-    double totalExpenses = transactions
-        .where((t) => t.type == 'expense')
-        .fold(0.0, (sum, t) => sum + t.amount);
+    if (reportType == 'Income') {
+      // For Income report: Only show income transactions
+      allEntries = transactions.where((t) => t.type == 'income').toList();
+    } else if (reportType == 'Expense') {
+      // For Expense report: ONLY show regular expenses, NOT commissions
+      allEntries = transactions.where((t) => t.type == 'expense').toList();
+      // Remove commission logic entirely
+    } else if (reportType == 'Net Cash Flow' || reportType == 'all') {
+      // For Net Cash Flow or All: Show all transactions as they are
+      allEntries = List.from(transactions);
+    }
 
-    final tableContentStyle = contentStyle.copyWith(fontSize: 8);
-    final tableHeaderStyle = style.copyWith(fontSize: 10);
+    // If no entries, show a message
+    if (allEntries.isEmpty) {
+      return [
+        pw.Center(
+          child: pw.Text(
+            'No transactions found for $reportType report',
+            style: contentStyle,
+          ),
+        ),
+      ];
+    }
+
+    // Sort all entries by date (ascending)
+    allEntries.sort((a, b) => a.date.compareTo(b.date));
+
+    // Calculate totals - DON'T include commissions
+    double totalAmount = allEntries.fold(0.0, (sum, t) => sum + t.amount);
+
+    // Build the table - REMOVE commission-related logic
+    List<pw.TableRow> tableRows = [];
+
+    // Table header
+    tableRows.add(
+      pw.TableRow(
+        decoration: pw.BoxDecoration(color: PdfColors.grey200),
+        children: [
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Text(
+              'Date',
+              style: headerStyle,
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Text(
+              'Type',
+              style: headerStyle,
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Text(
+              'Category',
+              style: headerStyle,
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Text(
+              'Amount',
+              style: headerStyle,
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Text(
+              'Description',
+              style: headerStyle,
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // Add regular transactions
+    for (var transaction in allEntries) {
+      tableRows.add(
+        pw.TableRow(
+          children: [
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(6),
+              child: pw.Text(
+                DateFormat('dd/MM/yyyy').format(transaction.date),
+                style: contentStyle,
+                textAlign: pw.TextAlign.center,
+              ),
+            ),
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(6),
+              child: pw.Text(
+                transaction.type,
+                style: contentStyle.copyWith(),
+                textAlign: pw.TextAlign.center,
+              ),
+            ),
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(6),
+              child: pw.Text(
+                transaction.category,
+                style: contentStyle,
+                textAlign: pw.TextAlign.center,
+              ),
+            ),
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(6),
+              child: pw.Text(
+                '${transaction.amount.toStringAsFixed(2)}',
+                style: contentStyle.copyWith(fontWeight: pw.FontWeight.bold),
+                textAlign: pw.TextAlign.center,
+              ),
+            ),
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(6),
+              child: pw.Text(
+                transaction.description,
+                style: contentStyle,
+                textAlign: pw.TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return [
-      pw.Table.fromTextArray(
-        headerStyle: tableHeaderStyle,
-        cellStyle: tableContentStyle,
-        headers: [
-          'Date',
-          'Description',
-          'Category',
-          if (showEmployee) 'Employee',
-          'Amount',
-        ],
-        data:
-            transactions.map((t) {
-              final baseData = [
-                DateFormat.yMd().format(t.date),
-                t.description ?? 'No description',
-                t.category,
-                if (showEmployee) t.employeeName ?? 'N/A',
-                '${t.amount.toStringAsFixed(0)}',
-              ];
-              return baseData;
-            }).toList(),
-        cellAlignments: {
-          0: pw.Alignment.center,
-          1: pw.Alignment.center,
-          2: pw.Alignment.center,
-          3: pw.Alignment.center,
-          4: pw.Alignment.center,
-        },
+      pw.Text(
+        '$reportType Report',
+        style: pw.TextStyle(
+          fontSize: 16,
+          fontWeight: pw.FontWeight.bold,
+          color: PdfColors.blueGrey800,
+        ),
+        textAlign: pw.TextAlign.center,
       ),
-      pw.SizedBox(height: 10),
-      _buildSummaryTable(
-        totalAmount: totalAmount,
-        totalIncome: totalIncome,
-        totalExpenses: totalExpenses,
-        reportType: reportType,
-        tableHeaderStyle: tableHeaderStyle,
-        tableContentStyle: tableContentStyle,
+      pw.SizedBox(height: 5),
+      pw.Text(
+        'Total Entries: ${allEntries.length}',
+        style: pw.TextStyle(fontSize: 10, color: PdfColors.grey),
+        textAlign: pw.TextAlign.center,
+      ),
+      pw.SizedBox(height: 20),
+      pw.Table(
+        border: pw.TableBorder.all(color: PdfColors.black, width: 1),
+        columnWidths: {
+          0: pw.FlexColumnWidth(1.0), // Date
+          1: pw.FlexColumnWidth(0.8), // Type
+          2: pw.FlexColumnWidth(1.0), // Category
+          3: pw.FlexColumnWidth(1.0), // Amount
+          4: pw.FlexColumnWidth(2.0), // Description
+        },
+        defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+        children: tableRows,
+      ),
+      // Total row
+      pw.SizedBox(height: 20),
+      pw.Table(
+        border: pw.TableBorder.all(color: PdfColors.black, width: 1),
+        columnWidths: {0: pw.FlexColumnWidth(3.0), 1: pw.FlexColumnWidth(2.5)},
+        children: [
+          pw.TableRow(
+            decoration: pw.BoxDecoration(color: PdfColors.grey300),
+            children: [
+              pw.Padding(
+                padding: const pw.EdgeInsets.all(10),
+                child: pw.Text(
+                  'TOTAL',
+                  style: headerStyle.copyWith(fontWeight: pw.FontWeight.bold),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+              pw.Padding(
+                padding: const pw.EdgeInsets.all(10),
+                child: pw.Text(
+                  '${totalAmount.toStringAsFixed(2)}',
+                  style: headerStyle.copyWith(fontWeight: pw.FontWeight.bold),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     ];
   }
@@ -961,16 +1257,13 @@ class PdfService {
         children: [
           pw.Padding(
             padding: const pw.EdgeInsets.all(4),
-            child: pw.Text(
-              'Total Expenses',
-              style: tableContentStyle.copyWith(color: PdfColors.red),
-            ),
+            child: pw.Text('Total Expenses', style: tableContentStyle),
           ),
           pw.Padding(
             padding: const pw.EdgeInsets.all(4),
             child: pw.Text(
               '${totalExpenses.toStringAsFixed(0)}',
-              style: tableContentStyle.copyWith(color: PdfColors.red),
+              style: tableContentStyle,
               textAlign: pw.TextAlign.center,
             ),
           ),

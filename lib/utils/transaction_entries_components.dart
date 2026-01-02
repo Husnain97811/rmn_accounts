@@ -178,22 +178,34 @@ class CashFlowTransactionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Check if transaction is employee-related
+    final isEmployeeTransaction =
+        transaction.category.toLowerCase() == 'commission' ||
+        transaction.category.toLowerCase() == 'advance' ||
+        transaction.category.toLowerCase() == 'full_salary';
+
     return BaseTransactionTile(
       leadingIcon:
-          transaction.type == 'income'
-              ? Icons.arrow_circle_up
-              : Icons.arrow_circle_down,
+          transaction.commission != null && transaction.commission! > 0
+              ? Icons.compare_arrows_sharp
+              : (transaction.type == 'income'
+                  ? Icons.arrow_circle_up
+                  : Icons.arrow_circle_down),
       leadingColor: transaction.type == 'income' ? Colors.green : Colors.red,
       title: '${transaction.amount.toStringAsFixed(1)}',
       titleColor: transaction.type == 'income' ? Colors.green : Colors.red,
       onTap: onTap,
-      trailing: PopupMenuButton(
-        itemBuilder:
-            (context) => [
-              PopupMenuItem(child: Text('Delete'), onTap: onDelete),
-              PopupMenuItem(child: Text('Edit'), onTap: onEdit),
-            ],
-      ),
+      // Only show popup menu if NOT an employee transaction
+      trailing:
+          isEmployeeTransaction
+              ? null // No trailing widget for employee transactions
+              : PopupMenuButton(
+                itemBuilder:
+                    (context) => [
+                      PopupMenuItem(child: Text('Delete'), onTap: onDelete),
+                      PopupMenuItem(child: Text('Edit'), onTap: onEdit),
+                    ],
+              ),
       subtitleChildren: [
         Text(transaction.category, style: TextStyle(fontSize: 11.sp)),
         if (transaction.description.isNotEmpty) SizedBox(height: 4.sp),
