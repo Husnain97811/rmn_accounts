@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:rmn_accounts/utils/views.dart';
@@ -16,6 +17,7 @@ class _SignInScreenState extends State<SignInScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  final FocusNode _submitFocusNode = FocusNode();
 
   @override
   void dispose() {
@@ -125,40 +127,52 @@ class _SignInScreenState extends State<SignInScreen> {
                 ),
 
                 const SizedBox(height: 20),
-                CustomTextFormField(
-                  maxLines: 1,
-                  controller: _passwordController,
-                  contentpadding: EdgeInsets.symmetric(vertical: 11.5.sp),
-                  // textAlignVertical: TextAlignVertical.center, // Added this line
-                  labelText: 'Password',
-                  prefixIcon: Icons.lock,
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_off
-                          : Icons.visibility,
-                    ),
-                    onPressed:
-                        () => setState(
-                          () => _obscurePassword = !_obscurePassword,
-                        ),
-                  ),
-                  obscureText: _obscurePassword,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your password';
+                Focus(
+                  onKey: (node, event) {
+                    // here also add for macbook enter key
+                    if (event.logicalKey == LogicalKeyboardKey.enter ||
+                        event.logicalKey == LogicalKeyboardKey.meta) {
+                      _submitFocusNode.requestFocus();
+                      return KeyEventResult.handled;
                     }
-                    if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
-                    }
-                    return null;
+                    return KeyEventResult.ignored;
                   },
+                  child: CustomTextFormField(
+                    maxLines: 1,
+                    controller: _passwordController,
+                    contentpadding: EdgeInsets.symmetric(vertical: 11.5.sp),
+                    // textAlignVertical: TextAlignVertical.center, // Added this line
+                    labelText: 'Password',
+                    prefixIcon: Icons.lock,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                      onPressed:
+                          () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                    ),
+                    obscureText: _obscurePassword,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your password';
+                      }
+                      if (value.length < 6) {
+                        return 'Password must be at least 6 characters';
+                      }
+                      return null;
+                    },
+                  ),
                 ),
 
                 const SizedBox(height: 20),
 
                 const SizedBox(height: 40),
                 AuthRoundBtn(
+                  focusNode: _submitFocusNode,
                   title: 'Sign in',
                   // loading: loadingProvider.isLoading,
                   onTap: _submitForm,
