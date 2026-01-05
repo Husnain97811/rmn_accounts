@@ -510,13 +510,15 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         Text('Unpaid Commission:  $_unpaidCommission'),
                         SizedBox(height: 15.sp),
 
-                        Text(
-                          'Advance Issued: ${_selectedEmployee!['advance_amount']?.toStringAsFixed(0) ?? '0.00'}',
-                          style: TextStyle(
-                            fontSize: 11.sp,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        paymentType == 'commission'
+                            ? SizedBox.shrink()
+                            : Text(
+                              'Advance Issued: ${_selectedEmployee!['advance_amount']?.toStringAsFixed(0) ?? '0.00'}',
+                              style: TextStyle(
+                                fontSize: 11.sp,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                         SizedBox(height: 5.sp),
 
                         // START OF NEW ADVANCE DEDUCTION UI
@@ -756,7 +758,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
           await _supabase
               .from('employers')
               .select(
-                'id, advance_amount, unpaid_salary, commission_unpaid, incentives',
+                'id, advance_amount, unpaid_salary, commission_unpaid, incentives, hra_amount, medical_allowance, conveyance_allowance',
               )
               .eq('employee_id', _userIdController.text)
               .single();
@@ -869,36 +871,28 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         // Record in paid_salaries
         await _supabase.from('paid_salaries').insert({
           'employee_id': _userIdController.text.toLowerCase(),
-          'amount': paymentType == 'commission' ? commissionPaidNow : netPay,
+          'amount': netPay,
           'payment_date': DateTime.now().toIso8601String(),
-          'type': paymentType == 'commission' ? 'commission' : paymentType,
+          'type': 'full_salary',
         });
 
         // Record in cash_flow_transactions
         String description =
-            '${paymentType.toUpperCase().replaceAll('_', ' ')} to ${_selectedEmployee!['name']} (ID: ${_userIdController.text})';
-        if (paymentType == 'commission') {
-          description =
-              'COMMISSION PAYMENT to ${_selectedEmployee!['name']} (ID: ${_userIdController.text})';
-        }
+            'FULL SALARY to ${_selectedEmployee!['name']} (ID: ${_userIdController.text})';
 
         final currentUser = _supabase.auth.currentUser;
         if (currentUser != null) {
-          // For commission-only payments, record as expense
           await _supabase.from('cash_flow_transactions').insert({
             'user_id': currentUser.id,
             'employee_id': _userIdController.text.toLowerCase(),
-
-            'amount': paymentType == 'commission' ? commissionPaidNow : netPay,
+            'amount': netPay,
             'description': description,
             'date': DateTime.now().toIso8601String(),
-            'category':
-                paymentType == 'commission' ? 'commission' : paymentType,
+            'category': 'full_salary',
             'type': 'expense',
           });
 
           // Update unpaid salary
-          final adjustedAmount = amount - advanceDeduction;
           final newUnpaid = currentUnpaid - amount;
           final isFullPayment = newUnpaid <= 0;
 
@@ -910,64 +904,111 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                 'incentives': 0.0, // Reset incentives on full salary payment
               })
               .eq('employee_id', _userIdController.text);
-        } else if (paymentType == 'commission') {
-          // Handle commission payment only
-          if (amount > currentCommissionUnpaid) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Cannot pay more than unpaid commission')),
-            );
-            return;
-          }
-
-          commissionPaidNow = amount;
-          final newCommissionUnpaid =
-              currentCommissionUnpaid - commissionPaidNow;
-
-          await _supabase
-              .from('employers')
-              .update({'commission_unpaid': newCommissionUnpaid})
-              .eq('employee_id', _userIdController.text);
-        } else if (paymentType == 'advance') {
-          // Update advance amount
-          await _supabase
-              .from('employers')
-              .update({'advance_amount': currentAdvance + amount})
-              .eq('employee_id', _userIdController.text);
         }
 
         // Generate salary slip for full salary
-        if (paymentType == 'full_salary') {
-          await _generateSalarySlip(
-            employee: _selectedEmployee!,
-            amount: amount,
-            paymentType: 'Full Salary',
-            remainingUnpaid: currentUnpaid - amount,
-            advanceDeduction: advanceDeduction,
-            totalCommissionUnpaid:
-                currentCommissionUnpaid, // Pass total unpaid commission (before payment)
-            commissionPaidNow:
-                commissionPaidNow, // Pass commission being paid now
-            scaffoldContext: context,
+        await _generateSalarySlip(
+          employee: _selectedEmployee!,
+          amount: amount,
+          paymentType: 'Full Salary',
+          remainingUnpaid: currentUnpaid - amount,
+          advanceDeduction: advanceDeduction,
+          totalCommissionUnpaid:
+              currentCommissionUnpaid, // Pass total unpaid commission (before payment)
+          commissionPaidNow:
+              commissionPaidNow, // Pass commission being paid now
+          scaffoldContext: context,
+        );
+      } else if (paymentType == 'commission') {
+        // Handle commission payment only
+        if (amount > currentCommissionUnpaid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Cannot pay more than unpaid commission')),
           );
+          return;
         }
 
-        _fetchEmployees();
-        Navigator.pop(context);
-        _clearFields();
+        commissionPaidNow = amount;
+        final newCommissionUnpaid = currentCommissionUnpaid - commissionPaidNow;
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${paymentType.replaceAll('_', ' ')} processed successfully',
-            ),
-          ),
-        );
+        // Update commission in database
+        await _supabase
+            .from('employers')
+            .update({'commission_unpaid': newCommissionUnpaid})
+            .eq('employee_id', _userIdController.text);
+
+        // Record in paid_salaries
+        await _supabase.from('paid_salaries').insert({
+          'employee_id': _userIdController.text.toLowerCase(),
+          'amount': commissionPaidNow,
+          'payment_date': DateTime.now().toIso8601String(),
+          'type': 'commission',
+        });
+
+        // Record in cash_flow_transactions
+        String description =
+            'COMMISSION PAYMENT to ${_selectedEmployee!['name']} (ID: ${_userIdController.text})';
+
+        final currentUser = _supabase.auth.currentUser;
+        if (currentUser != null) {
+          await _supabase.from('cash_flow_transactions').insert({
+            'user_id': currentUser.id,
+            'employee_id': _userIdController.text.toLowerCase(),
+            'amount': commissionPaidNow,
+            'description': description,
+            'date': DateTime.now().toIso8601String(),
+            'category': 'commission',
+            'type': 'expense',
+          });
+        }
+      } else if (paymentType == 'advance') {
+        // Handle advance payment
+        // Update advance amount
+        await _supabase
+            .from('employers')
+            .update({'advance_amount': currentAdvance + amount})
+            .eq('employee_id', _userIdController.text);
+
+        // Record in paid_salaries
+        await _supabase.from('paid_salaries').insert({
+          'employee_id': _userIdController.text.toLowerCase(),
+          'amount': amount,
+          'payment_date': DateTime.now().toIso8601String(),
+          'type': 'advance',
+        });
+
+        // Record in cash_flow_transactions
+        String description =
+            'ADVANCE PAYMENT to ${_selectedEmployee!['name']} (ID: ${_userIdController.text})';
+
+        final currentUser = _supabase.auth.currentUser;
+        if (currentUser != null) {
+          await _supabase.from('cash_flow_transactions').insert({
+            'user_id': currentUser.id,
+            'employee_id': _userIdController.text.toLowerCase(),
+            'amount': amount,
+            'description': description,
+            'date': DateTime.now().toIso8601String(),
+            'category': 'advance',
+            'type': 'expense',
+          });
+        }
       }
-    } catch (e) {
-      print(e.toString());
-      ScaffoldMessenger.of(
+
+      // Common success actions for all payment types
+      _fetchEmployees();
+      Navigator.pop(context);
+      _clearFields();
+
+      SupabaseExceptionHandler.showSuccessSnackbar(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
+        '${paymentType.replaceAll('_', ' ')} processed successfully',
+      );
+    } catch (e) {
+      SupabaseExceptionHandler.showErrorSnackbar(
+        context,
+        'Something went wrong\n Please update your software or contact developer.',
+      );
     }
   }
 

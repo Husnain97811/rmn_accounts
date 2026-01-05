@@ -601,7 +601,7 @@ class CashFlowProvider with ChangeNotifier {
 
           if (res != null) {
             final currentUnpaid = res['unpaid_salary'] ?? 0;
-            final currentCommission = res['commission'] ?? 0;
+            final currentCommission = res['commission_unpaid'] ?? 0;
             final currentIncentives = res['incentives'] ?? 0;
 
             await _supabase
@@ -612,7 +612,7 @@ class CashFlowProvider with ChangeNotifier {
                   //     (commission ?? 0), // Add commission to unpaid
                   'commission_unpaid':
                       currentCommission +
-                      (commission ?? 0), // Add to total commission
+                      (commission), // Add to total commission
                   // 'is_salary_paid': false,
                   // if (incentives != null)
                   //   'incentives': currentIncentives + incentives,
