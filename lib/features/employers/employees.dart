@@ -15,6 +15,7 @@ import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import 'package:rmn_accounts/utils/views.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 
 class EmployeesScreen extends StatefulWidget {
   const EmployeesScreen({super.key});
@@ -952,6 +953,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         final currentUser = _supabase.auth.currentUser;
         if (currentUser != null) {
           await _supabase.from('cash_flow_transactions').insert({
+            'id': Uuid(),
             'user_id': currentUser.id,
             'employee_id': _userIdController.text.toLowerCase(),
             'amount': commissionPaidNow,
@@ -1007,8 +1009,9 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     } catch (e) {
       SupabaseExceptionHandler.showErrorSnackbar(
         context,
-        'Something went wrong\n Please update your software or contact developer.',
+        'Something went wrong\n Please update your software or contact developer. $e',
       );
+      print(e.toString());
     }
   }
 
