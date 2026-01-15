@@ -15,12 +15,25 @@ class WalletTransactionsScreen extends StatefulWidget {
 class _WalletTransactionsScreenState extends State<WalletTransactionsScreen>
     with RefreshableScreen {
   final TextEditingController _searchController = TextEditingController();
-  List<WalletTransaction> _filteredTransactions = [];
 
   @override
   void initState() {
     super.initState();
-    _loadInitialData();
+    // Rebuild the UI when search text changes so filtering happens in real-time
+    _searchController.addListener(() {
+      setState(() {});
+    });
+
+    // Trigger the initial data fetch
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadInitialData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _loadInitialData() async {
@@ -30,23 +43,50 @@ class _WalletTransactionsScreenState extends State<WalletTransactionsScreen>
     loadingProvider.startLoading();
     try {
       await cashFlowProvider.loadWalletBalance();
-      _updateFilteredTransactions(cashFlowProvider.walletTransactions);
     } finally {
       loadingProvider.stopLoading();
     }
   }
 
-  void _updateFilteredTransactions(List<WalletTransaction> transactions) {
-    setState(() {
-      _filteredTransactions =
-          _searchController.text.isEmpty
-              ? transactions
-              : transactions.where((transaction) {
-                return transaction.description.toLowerCase().contains(
-                  _searchController.text.toLowerCase(),
-                );
-              }).toList();
-    });
+  // This helper function derives the data directly from the provider
+  List<WalletTransaction> _getProcessedTransactions(CashFlowProvider provider) {
+    // 1. Get ONLY credit transactions from wallet system
+    final walletCredits =
+        provider.walletTransactions.where((t) => t.type == 'credit').toList();
+
+    // 2. Get wallet expenses from cash flow transactions
+    final walletExpenses =
+        provider.transactions.where((t) => t.type == 'wallet expense').toList();
+
+    // 3. Convert wallet expenses to WalletTransaction format
+    final convertedExpenses =
+        walletExpenses.map((expense) {
+          return WalletTransaction(
+            id: int.parse(expense.id),
+            amount: expense.amount,
+            type: 'debit',
+            description: expense.description ?? 'Wallet Expense',
+            createdAt: expense.date,
+          );
+        }).toList();
+
+    // 4. Combine them
+    final combinedTransactions = [...walletCredits, ...convertedExpenses];
+
+    // 5. Filter based on Search Controller
+    final filtered =
+        _searchController.text.isEmpty
+            ? combinedTransactions
+            : combinedTransactions.where((transaction) {
+              final description = transaction.description?.toLowerCase() ?? '';
+              final searchText = _searchController.text.toLowerCase();
+              return description.contains(searchText);
+            }).toList();
+
+    // 6. Sort by date (newest first)
+    filtered.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    return filtered;
   }
 
   @override
@@ -72,34 +112,17 @@ class _WalletTransactionsScreenState extends State<WalletTransactionsScreen>
             children: [
               SearchBarWidget(
                 controller: _searchController,
-                onChanged:
-                    (value) => _updateFilteredTransactions(
-                      context.read<CashFlowProvider>().walletTransactions,
-                    ),
+                // We don't need logic here because the listener in initState handles the rebuild
+                onChanged: (value) {},
                 hintText: 'Search by description',
               ),
-              // Consumer<CashFlowProvider>(
-              //   builder:
-              //       (context, provider, _) => BalanceCard(
-              //         title: 'Current Balance:',
-              //         balance: provider.walletBalance,
-              //         balanceColor:
-              //             provider.walletBalance >= 0
-              //                 ? Colors.green
-              //                 : Colors.red,
-              //       ),
-              // ),
               Expanded(
                 child: Consumer<CashFlowProvider>(
                   builder: (context, provider, _) {
-                    if (provider.walletTransactions.isEmpty) {
-                      return EmptyStateWidget(
-                        message: 'No wallet transactions found',
-                        searchQuery: _searchController.text,
-                      );
-                    }
+                    // Calculate the list dynamically inside the builder
+                    final transactions = _getProcessedTransactions(provider);
 
-                    if (_filteredTransactions.isEmpty) {
+                    if (transactions.isEmpty) {
                       return EmptyStateWidget(
                         message: 'No wallet transactions found',
                         searchQuery: _searchController.text,
@@ -108,16 +131,16 @@ class _WalletTransactionsScreenState extends State<WalletTransactionsScreen>
 
                     return ListView.builder(
                       padding: EdgeInsets.all(2.w),
-                      itemCount: _filteredTransactions.length,
-                      itemBuilder:
-                          (context, index) => WalletTransactionTile(
-                            transaction: _filteredTransactions[index],
-                            onTap:
-                                () => _showTransactionDetails(
-                                  context,
-                                  _filteredTransactions[index],
-                                ),
-                          ),
+                      itemCount: transactions.length,
+                      itemBuilder: (context, index) {
+                        final transaction = transactions[index];
+                        return WalletTransactionTile(
+                          transaction: transaction,
+                          onTap:
+                              () =>
+                                  _showTransactionDetails(context, transaction),
+                        );
+                      },
                     );
                   },
                 ),
@@ -133,6 +156,11 @@ class _WalletTransactionsScreenState extends State<WalletTransactionsScreen>
     BuildContext context,
     WalletTransaction transaction,
   ) {
+    final source =
+        transaction.description?.contains('Wallet Expense') ?? false
+            ? 'Cash Flow System'
+            : 'Wallet System';
+
     showDialog(
       context: context,
       builder:
@@ -153,6 +181,11 @@ class _WalletTransactionsScreenState extends State<WalletTransactionsScreen>
               ),
               DetailRow(label: 'Description:', value: transaction.description),
               DetailRow(
+                label: 'Source:',
+                value: source,
+                valueColor: Colors.purple,
+              ),
+              DetailRow(
                 label: 'Date:',
                 value: DateFormatters.formatDateOnly(transaction.createdAt),
                 valueColor: Colors.black54,
@@ -170,80 +203,112 @@ class _WalletTransactionsScreenState extends State<WalletTransactionsScreen>
   void _refreshData() {
     refreshData(() async {
       await context.read<CashFlowProvider>().loadWalletBalance();
-      _updateFilteredTransactions(
-        context.read<CashFlowProvider>().walletTransactions,
-      );
+      // No need to manually update transactions, Consumer handles it
     });
   }
 
   void _generateWalletPdfWithTimeFilter(BuildContext context) {
-    PdfService.showWalletTimeSelectionDialog(
-      context,
-      onTimeSelected: (String timeframe, DateTimeRange? dateRange) async {
-        final loadingProvider = Provider.of<LoadingProvider>(
+    // First, show dialog to select transaction type
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Select Report Type'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(
+                    Icons.arrow_downward,
+                    color: Colors.green,
+                  ),
+                  title: const Text('Income Report'),
+                  subtitle: const Text('Only wallet credit transactions'),
+                  onTap: () {
+                    Navigator.pop(context, 'income');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.arrow_upward, color: Colors.red),
+                  title: const Text('Expense Report'),
+                  subtitle: const Text('Only wallet expense transactions'),
+                  onTap: () {
+                    Navigator.pop(context, 'expense');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.compare_arrows, color: Colors.blue),
+                  title: const Text('Combined Report'),
+                  subtitle: const Text('Both income and expense transactions'),
+                  onTap: () {
+                    Navigator.pop(context, 'both');
+                  },
+                ),
+              ],
+            ),
+          ),
+    ).then((selectedType) {
+      if (selectedType != null) {
+        // After selecting type, show time interval selection
+        PdfService.showWalletTimeSelectionDialog(
           context,
-          listen: false,
+          onTimeSelected: (String timeframe, DateTimeRange? dateRange) async {
+            final loadingProvider = Provider.of<LoadingProvider>(
+              context,
+              listen: false,
+            );
+            final cashFlowProvider = Provider.of<CashFlowProvider>(
+              context,
+              listen: false,
+            );
+
+            try {
+              loadingProvider.startPdfLoading();
+
+              // Get all transactions first
+              List<WalletTransaction> walletCredits =
+                  cashFlowProvider.walletTransactions
+                      .where((t) => t.type == 'credit')
+                      .toList();
+
+              List<CashFlowTransaction> walletExpenses =
+                  cashFlowProvider.transactions
+                      .where((t) => t.type == 'wallet expense')
+                      .toList();
+
+              // Filter based on selected type
+              if (selectedType == 'income') {
+                // Only income - set expenses to empty
+                walletExpenses = [];
+              } else if (selectedType == 'expense') {
+                // Only expense - set credits to empty
+                walletCredits = [];
+              }
+              // If 'both', keep both lists as is
+
+              final file = await PdfService.generateWalletReport(
+                walletCredits: walletCredits,
+                walletExpenses: walletExpenses,
+                currentBalance: cashFlowProvider.walletBalance,
+                timeframe: timeframe,
+                dateRange: dateRange,
+              );
+
+              SupabaseExceptionHandler.showSuccessSnackbar(
+                context,
+                'Wallet PDF generated successfully!\nSaved to: ${file.path}',
+              );
+            } catch (e) {
+              SupabaseExceptionHandler.showErrorSnackbar(
+                context,
+                'Error generating PDF: ${e.toString()}',
+              );
+            } finally {
+              loadingProvider.stopPdfLoading();
+            }
+          },
         );
-        final cashFlowProvider = Provider.of<CashFlowProvider>(
-          context,
-          listen: false,
-        );
-
-        try {
-          loadingProvider.startPdfLoading();
-
-          final file = await PdfService.generateWalletReport(
-            transactions: cashFlowProvider.walletTransactions,
-            currentBalance: cashFlowProvider.walletBalance,
-            timeframe: timeframe,
-            dateRange: dateRange,
-          );
-
-          SupabaseExceptionHandler.showSuccessSnackbar(
-            context,
-            'Wallet PDF generated successfully!\nSaved to: ${file.path}',
-          );
-        } catch (e) {
-          SupabaseExceptionHandler.showErrorSnackbar(
-            context,
-            'Error generating PDF: ${e.toString()}',
-          );
-        } finally {
-          loadingProvider.stopPdfLoading();
-        }
-      },
-    );
-  }
-
-  Future<void> _generateWalletPdf(BuildContext context) async {
-    final loadingProvider = Provider.of<LoadingProvider>(
-      context,
-      listen: false,
-    );
-    final cashFlowProvider = Provider.of<CashFlowProvider>(
-      context,
-      listen: false,
-    );
-
-    try {
-      loadingProvider.startPdfLoading();
-
-      final file = await PdfService.generateWalletReport(
-        transactions: cashFlowProvider.walletTransactions,
-        currentBalance: cashFlowProvider.walletBalance,
-      );
-
-      SupabaseExceptionHandler.showSuccessSnackbar(
-        context,
-        'Wallet PDF generated successfully!\nSaved to: ${file.path}',
-      );
-    } catch (e) {
-      SupabaseExceptionHandler.showErrorSnackbar(
-        context,
-        'Error generating PDF: ${e.toString()}',
-      );
-    } finally {
-      loadingProvider.stopPdfLoading();
-    }
+      }
+    });
   }
 }

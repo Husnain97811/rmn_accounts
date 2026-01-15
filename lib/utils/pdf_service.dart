@@ -120,39 +120,71 @@ class PdfService {
 
   // Generate Wallet Transactions Report with time filter
   static Future<File> generateWalletReport({
-    required List<WalletTransaction> transactions,
+    required List<WalletTransaction> walletCredits,
+    required List<CashFlowTransaction> walletExpenses,
     required double currentBalance,
     String timeframe = 'all',
     DateTimeRange? dateRange,
   }) async {
     final pdf = pw.Document();
 
-    // Filter transactions based on timeframe
-    List<WalletTransaction> filteredTransactions = _filterWalletTransactions(
-      transactions,
+    // Filter credits based on timeframe
+    List<WalletTransaction> filteredCredits = _filterWalletTransactions(
+      walletCredits,
       timeframe,
       dateRange,
     );
 
-    // Sort wallet transactions in ascending order (oldest first)
-    filteredTransactions.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    // Filter wallet expenses based on timeframe
+    List<CashFlowTransaction> filteredExpenses = _filterCashFlowTransactions(
+      walletExpenses,
+      timeframe,
+      dateRange,
+    );
 
-    // Calculate totals for filtered period
-    double totalCredit = filteredTransactions
-        .where((t) => t.type == 'credit')
-        .fold(0.0, (sum, t) => sum + t.amount);
+    // Convert wallet expenses to WalletTransaction format
+    List<WalletTransaction> convertedExpenses =
+        filteredExpenses.map((expense) {
+          return WalletTransaction(
+            id: int.parse(expense.id),
+            amount: expense.amount,
+            type: 'debit',
+            description: expense.description ?? 'Wallet Expense',
+            createdAt: expense.date,
+          );
+        }).toList();
 
-    double totalDebit = filteredTransactions
-        .where((t) => t.type == 'debit')
-        .fold(0.0, (sum, t) => sum + t.amount);
+    // Combine ONLY credits and wallet expenses
+    List<WalletTransaction> allTransactions = [
+      ...filteredCredits,
+      ...convertedExpenses,
+    ];
 
+    // Sort by date (oldest first for PDF)
+    allTransactions.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+    // Calculate totals
+    double totalCredit = filteredCredits.fold(0.0, (sum, t) => sum + t.amount);
+    double totalDebit = filteredExpenses.fold(0.0, (sum, t) => sum + t.amount);
     double netChange = totalCredit - totalDebit;
+
+    // Determine if this is a combined report (has both income and expense)
+    bool isCombinedReport =
+        filteredCredits.isNotEmpty && filteredExpenses.isNotEmpty;
 
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         header: (pw.Context context) {
+          // Set report title based on content
+          String reportTitle = 'Wallet Transactions Report';
+          if (filteredCredits.isNotEmpty && filteredExpenses.isEmpty) {
+            reportTitle = 'Wallet Income Report';
+          } else if (filteredCredits.isEmpty && filteredExpenses.isNotEmpty) {
+            reportTitle = 'Wallet Expense Report';
+          }
+
           return pw.Column(
             children: [
               pw.Text(
@@ -162,7 +194,7 @@ class PdfService {
               ),
               pw.SizedBox(height: 4),
               pw.Text(
-                'Wallet Transactions Report',
+                reportTitle,
                 style: _subtitleStyle,
                 textAlign: pw.TextAlign.center,
               ),
@@ -180,8 +212,8 @@ class PdfService {
               textAlign: pw.TextAlign.center,
             ),
 
-            // Summary for selected period
-            if (timeframe != 'all')
+            // Summary for selected period - ONLY SHOW FOR COMBINED REPORTS
+            if (timeframe != 'all' && isCombinedReport)
               pw.Column(
                 children: [
                   pw.SizedBox(height: 10),
@@ -199,9 +231,70 @@ class PdfService {
                 ],
               ),
 
-            // Transactions table
+            // Source breakdown - Adjust based on report type
+            pw.Text(
+              isCombinedReport
+                  ? 'Source Breakdown:'
+                  : filteredCredits.isNotEmpty
+                  ? 'Income Details:'
+                  : 'Expense Details:',
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 5),
+
+            if (isCombinedReport)
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Wallet Credits: ${filteredCredits.length}',
+                    style: pw.TextStyle(fontSize: 10),
+                  ),
+                  pw.Text(
+                    'Wallet Expenses: ${filteredExpenses.length}',
+                    style: pw.TextStyle(fontSize: 10),
+                  ),
+                ],
+              )
+            else if (filteredCredits.isNotEmpty)
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Total Income Transactions: ${filteredCredits.length}',
+                    style: pw.TextStyle(fontSize: 10),
+                  ),
+                  pw.Text(
+                    'Total Income Amount: ${totalCredit.toStringAsFixed(2)}',
+                    style: pw.TextStyle(
+                      fontSize: 10,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              )
+            else if (filteredExpenses.isNotEmpty)
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Total Expense Transactions: ${filteredExpenses.length}',
+                    style: pw.TextStyle(fontSize: 10),
+                  ),
+                  pw.Text(
+                    'Total Expense Amount: ${totalDebit.toStringAsFixed(2)}',
+                    style: pw.TextStyle(
+                      fontSize: 10,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+
             pw.SizedBox(height: 10),
-            _buildWalletTransactionsTable(filteredTransactions),
+
+            // All transactions table
+            _buildWalletTransactionsTable(allTransactions),
           ];
         },
         footer:
@@ -213,14 +306,112 @@ class PdfService {
     );
 
     final directory = await getDownloadsDirectory();
+    // Generate filename based on report type
+    String reportType = 'transactions';
+    if (filteredCredits.isNotEmpty && filteredExpenses.isEmpty) {
+      reportType = 'income';
+    } else if (filteredCredits.isEmpty && filteredExpenses.isNotEmpty) {
+      reportType = 'expense';
+    }
+
     final fileName =
-        timeframe == 'all'
-            ? 'wallet_transactions_all_${DateTime.now().millisecondsSinceEpoch}.pdf'
-            : 'wallet_transactions_${timeframe}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+        'wallet_${reportType}_${timeframe}_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
     final file = File('${directory!.path}/$fileName');
     await file.writeAsBytes(await pdf.save());
     return file;
+  }
+
+  // ADD THIS METHOD TO PdfService class
+  static List<CashFlowTransaction> _filterCashFlowTransactions(
+    List<CashFlowTransaction> transactions,
+    String timeframe,
+    DateTimeRange? dateRange,
+  ) {
+    if (timeframe == 'all') return transactions;
+
+    final now = DateTime.now();
+    DateTime startDate;
+    DateTime endDate;
+
+    switch (timeframe) {
+      case 'today':
+        startDate = DateTime(now.year, now.month, now.day);
+        endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+        break;
+      case 'yesterday':
+        final yesterday = now.subtract(Duration(days: 1));
+        startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        endDate = DateTime(
+          yesterday.year,
+          yesterday.month,
+          yesterday.day,
+          23,
+          59,
+          59,
+        );
+        break;
+      case 'this_week':
+        final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+        startDate = DateTime(
+          startOfWeek.year,
+          startOfWeek.month,
+          startOfWeek.day,
+        );
+        endDate = now;
+        break;
+      case 'last_week':
+        final startOfLastWeek = now.subtract(Duration(days: now.weekday + 6));
+        final endOfLastWeek = startOfLastWeek.add(Duration(days: 6));
+        startDate = DateTime(
+          startOfLastWeek.year,
+          startOfLastWeek.month,
+          startOfLastWeek.day,
+        );
+        endDate = DateTime(
+          endOfLastWeek.year,
+          endOfLastWeek.month,
+          endOfLastWeek.day,
+          23,
+          59,
+          59,
+        );
+        break;
+      case 'this_month':
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = now;
+        break;
+      case 'last_month':
+        final firstDayLastMonth = DateTime(now.year, now.month - 1, 1);
+        final lastDayLastMonth = DateTime(now.year, now.month, 0);
+        startDate = firstDayLastMonth;
+        endDate = DateTime(
+          lastDayLastMonth.year,
+          lastDayLastMonth.month,
+          lastDayLastMonth.day,
+          23,
+          59,
+          59,
+        );
+        break;
+      case 'custom':
+        if (dateRange != null) {
+          startDate = dateRange.start;
+          endDate = dateRange.end;
+        } else {
+          return transactions;
+        }
+        break;
+      default:
+        return transactions;
+    }
+
+    return transactions.where((transaction) {
+      return transaction.date.isAfter(
+            startDate.subtract(Duration(seconds: 1)),
+          ) &&
+          transaction.date.isBefore(endDate.add(Duration(seconds: 1)));
+    }).toList();
   }
 
   // Filter wallet transactions based on timeframe

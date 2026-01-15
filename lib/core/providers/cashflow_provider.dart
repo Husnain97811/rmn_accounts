@@ -40,6 +40,66 @@ class CashFlowProvider with ChangeNotifier {
     await fetchCategories();
   }
 
+  Future<void> migrateWalletTransactions() async {
+    try {
+      print('=== Starting wallet transactions migration ===');
+
+      // 1. Get all wallet transactions
+      final walletTransactions = await _supabase
+          .from('wallet_transactions')
+          .select()
+          .order('created_at', ascending: false);
+
+      print(
+        'Total wallet transactions to migrate: ${walletTransactions.length}',
+      );
+
+      int migratedCount = 0;
+      int skippedCount = 0;
+
+      // 2. Process each transaction
+      for (var transaction in walletTransactions) {
+        final String type = transaction['type'];
+        final double amount = (transaction['amount'] as num).toDouble();
+        final String description = transaction['description'] ?? '';
+        final DateTime createdAt = DateTime.parse(
+          transaction['created_at'].toString(),
+        );
+
+        // if (type == 'debit') {
+        //   // 3. Migrate debit transactions to cash_flow_transactions as 'wallet expense'
+        //   try {
+        //     await _supabase.from('transactions').insert({
+        //       'amount': amount,
+        //       'type': 'wallet expense',
+        //       'description': description,
+        //       'date': createdAt.toIso8601String(),
+        //       'created_at': createdAt.toIso8601String(),
+        //       'updated_at': DateTime.now().toIso8601String(),
+        //     });
+
+        //     migratedCount++;
+        //     print('Migrated debit: $description - $amount');
+        //   } catch (e) {
+        //     print('Error migrating transaction ${transaction['id']}: $e');
+        //   }
+        // } else if (type == 'credit') {
+        //   // 4. Keep credit transactions in wallet_transactions
+        //   skippedCount++;
+        //   print('Kept credit: $description - $amount');
+        // }
+      }
+
+      print('=== Migration completed ===');
+      print(
+        'Migrated $migratedCount debit transactions to cash_flow_transactions',
+      );
+      print('Kept $skippedCount credit transactions in wallet_transactions');
+    } catch (e) {
+      print('Error during migration: $e');
+    }
+  }
+
   void resetFormState() {
     _selectedType = 'income';
     _selectedCategory = null;
@@ -289,6 +349,23 @@ class CashFlowProvider with ChangeNotifier {
           .from('wallet_transactions')
           .select()
           .order('created_at', ascending: false);
+
+      // print('Wallet transactions loaded: ${transactionsResponse.length}');
+      // for (var t in transactionsResponse) {
+      //   print('  - ID: ${t['id']}, Type: ${t['type']}, Amount: ${t['amount']}');
+      // }
+
+      // final cashFlowResponse = await _supabase
+      //     .from('transactions')
+      //     .select()
+      //     .order('date', ascending: false);
+
+      // print('Cash flow transactions loaded: ${cashFlowResponse.length}');
+      // for (var t in cashFlowResponse) {
+      //   print('  - ID: ${t['id']}, Type: ${t['type']}, Amount: ${t['amount']}');
+      // }
+
+      // print('=== END DEBUG ===');
 
       _walletTransactions =
           transactionsResponse
