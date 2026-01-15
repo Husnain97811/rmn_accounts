@@ -59,7 +59,7 @@ class CashFlowProvider with ChangeNotifier {
 
   double get totalExpense {
     return _transactions
-        .where((t) => t.type == 'expense')
+        .where((t) => t.type == 'expense' || t.type == 'wallet expense')
         .fold(0, (sum, t) => sum + t.amount);
   }
 
@@ -138,46 +138,62 @@ class CashFlowProvider with ChangeNotifier {
     String? description,
     required DateTime date, // Add date parameter
   }) async {
+    // Fetch old transaction data
+    final oldData =
+        await _supabase
+            .from('cash_flow_transactions')
+            .select('type, category, amount, employee_id, employee_commission')
+            .eq('id', id)
+            .single();
     // Implementation to update transaction in database
-    await _supabase
-        .from('cash_flow_transactions')
-        .update({
-          'amount': amount,
-          'description': description,
-          'employee_id': employeeId,
-          'employee_name': _selectedEmployee,
-          'date': date.toIso8601String(),
-          'employee_commission': commission,
-          // 'incentives': incentives,
-          // 'updated_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', id);
+
+    if (oldData['type'] == 'wallet expense') {
+      // If the old transaction was a wallet expense, update the wallet balance
+      await _supabase
+          .from('cash_flow_transactions')
+          .update({
+            'amount': amount,
+            'description': description,
+            'employee_id': employeeId,
+            'employee_name': _selectedEmployee,
+            'date': date.toIso8601String(),
+            'employee_commission': commission,
+            // 'incentives': incentives,
+            // 'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', id)
+          .then((_) async {
+            final oldAmount = (oldData['amount'] as num).toDouble();
+            _walletBalance += (oldAmount - amount);
+            await _supabase
+                .from('wallet_balance')
+                .update({
+                  'balance': _walletBalance,
+                  'updated_at': DateTime.now().toIso8601String(),
+                })
+                .eq('id', 1);
+          });
+    } else {
+      await _supabase
+          .from('cash_flow_transactions')
+          .update({
+            'amount': amount,
+            'description': description,
+            'employee_id': employeeId,
+            'employee_name': _selectedEmployee,
+            'date': date.toIso8601String(),
+            'employee_commission': commission,
+            // 'incentives': incentives,
+            // 'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', id);
+
+      //if type is wallet balnce then update wallet balnce also
+    }
 
     // Refresh transactions after update
     await loadTransactions();
   }
-
-  // Future<void> deleteTransaction(
-  //   String id,
-  //   BuildContext context, {
-  //   CashFlowTransaction? transaction, // Make this optional
-  // }) async {
-  //   try {
-  //     await _supabase.from('cash_flow_transactions').delete().eq('id', id);
-  //     _transactions.removeWhere((t) => t.id == id);
-  //     notifyListeners();
-  //     SupabaseExceptionHandler.showSuccessSnackbar(
-  //       context,
-  //       'Successfully Deleted',
-  //     );
-  //   } catch (e) {
-  //     SupabaseExceptionHandler.showErrorSnackbar(
-  //       context,
-  //       'Something went wrong $e',
-  //     );
-  //     // rethrow;
-  //   }
-  // }
 
   Future<void> deleteTransaction(
     int transactionId,
@@ -188,54 +204,6 @@ class CashFlowProvider with ChangeNotifier {
       // If transaction is not provided, find it from the list
       final transactionToDelete =
           transaction ?? _transactions.firstWhere((t) => t.id == transactionId);
-
-      // Check if this is a wallet expense
-      final isWalletExpense =
-          transactionToDelete.type == 'expense' &&
-          transactionToDelete.category.toLowerCase() == 'wallet';
-
-      if (isWalletExpense) {
-        // Method 1: Try to find by direct amount and description matching (more reliable)
-        final walletTransactions = await _supabase
-            .from('wallet_transactions')
-            .select()
-            .eq('amount', transactionToDelete.amount)
-            .eq('type', 'debit')
-            .eq('description', transactionToDelete.description)
-            .order('created_at', ascending: false)
-            .limit(1);
-
-        if (walletTransactions.isNotEmpty) {
-          final walletTransaction = walletTransactions.first;
-          final walletTransactionId = walletTransaction['id'] as int;
-
-          await _supabase
-              .from('wallet_transactions')
-              .delete()
-              .eq('id', walletTransactionId);
-
-          // Add the amount back to wallet balance
-          _walletBalance += transactionToDelete.amount;
-          await _supabase
-              .from('wallet_balance')
-              .update({
-                'balance': _walletBalance,
-                'updated_at': DateTime.now().toIso8601String(),
-              })
-              .eq('id', 1);
-        } else {
-          // Even if no wallet transaction found, we should still update the balance
-          // because the expense was subtracted from wallet
-          _walletBalance += transactionToDelete.amount;
-          await _supabase
-              .from('wallet_balance')
-              .update({
-                'balance': _walletBalance,
-                'updated_at': DateTime.now().toIso8601String(),
-              })
-              .eq('id', 1);
-        }
-      }
 
       // BEFORE deleting the transaction, handle employee commission deduction if applicable
       if (transactionToDelete.employeeId != null &&
@@ -278,21 +246,19 @@ class CashFlowProvider with ChangeNotifier {
         }
       }
 
-      // Delete the main transaction
-      await _supabase
-          .from('cash_flow_transactions')
-          .delete()
-          .eq('id', transactionId);
-
+      await _supabase.rpc(
+        'delete_transaction_and_adjust_balance',
+        params: {'p_transaction_id': transactionId},
+      );
       // Remove from local lists
       _transactions.removeWhere((t) => t.id == transactionId);
       _filteredTransactions.removeWhere((t) => t.id == transactionId);
 
       // Reload data to ensure consistency
       await loadTransactions();
-      if (isWalletExpense) {
-        await loadWalletBalance();
-      }
+      await loadWalletBalance();
+      // if (isWalletExpense) {
+      // }
 
       notifyListeners();
 
@@ -356,12 +322,12 @@ class CashFlowProvider with ChangeNotifier {
           .eq('id', 1);
 
       // Add wallet transaction
-      await _supabase.from('wallet_transactions').insert({
-        'amount': amount,
-        'description': description,
-        'type': 'credit',
-        'created_at': DateTime.now().toIso8601String(),
-      });
+      // await _supabase.from('wallet_transactions').insert({
+      //   'amount': amount,
+      //   'description': description,
+      //   'type': 'credit',
+      //   'created_at': DateTime.now().toIso8601String(),
+      // });
 
       // Reload to ensure consistency
       await loadWalletBalance();
@@ -375,51 +341,39 @@ class CashFlowProvider with ChangeNotifier {
     }
   }
 
-  Future<void> subtractFromWallet(double amount, String description) async {
+  Future<void> subtractFromWallet(
+    double amount,
+    String description,
+    String category,
+    DateTime date,
+  ) async {
     try {
       if (amount <= 0) {
         throw Exception('Amount must be greater than 0');
       }
 
-      if (_walletBalance < amount) {
-        throw Exception(
-          'Insufficient wallet balance. Available: $_walletBalance',
-        );
-      }
-
-      // Update wallet balance
-      _walletBalance -= amount;
+      // Add to expenses table with provided category
       await _supabase
-          .from('wallet_balance')
-          .update({
-            'balance': _walletBalance,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', 1);
-
-      print('Creating wallet transaction...');
-      // Add wallet transaction first and get the ID
-      final walletResponse =
-          await _supabase.from('wallet_transactions').insert({
+          .from('cash_flow_transactions')
+          .insert({
+            'type': 'wallet expense',
             'amount': amount,
-            'description': description.isEmpty ? 'Wallet Expense' : description,
-            'type': 'debit',
-            'created_at': DateTime.now().toIso8601String(),
-          }).select();
-
-      final walletTransactionId = walletResponse.first['id'] as int;
-      print('Wallet transaction created with ID: $walletTransactionId');
-
-      // Add to expenses table with category "wallet"
-      await _supabase.from('cash_flow_transactions').insert({
-        'type': 'expense',
-        'amount': amount,
-        'category': 'wallet',
-        'description': description.isEmpty ? 'Wallet Expense' : description,
-        'date': DateTime.now().toIso8601String(),
-        'user_id': _supabase.auth.currentUser?.id,
-        'wallet_transaction_id': walletTransactionId, // Store the link
-      });
+            'category': category,
+            'description': description,
+            'date': date.toIso8601String(),
+            'user_id': _supabase.auth.currentUser?.id,
+          })
+          .then((_) async {
+            // After successful insertion, update wallet balance to ensure consistency
+            _walletBalance -= amount;
+            await _supabase
+                .from('wallet_balance')
+                .update({
+                  'balance': _walletBalance,
+                  'updated_at': DateTime.now().toIso8601String(),
+                })
+                .eq('id', 1);
+          });
 
       // Reload both wallet and transactions
       await loadWalletBalance();
@@ -718,7 +672,7 @@ class CashFlowProvider with ChangeNotifier {
 
       // For expense report - ONLY show regular expenses, NOT commissions
       if (reportType == 'Expense') {
-        return t.type == 'expense'; // Only regular expenses, no commissions
+        return t.type == 'expense' || t.type == 'wallet expense';
       }
       // For Net Cash Flow report - include both income and regular expenses
       // but NOT commissions as expenses

@@ -128,7 +128,13 @@ class _CashFlowEntriesScreenState extends State<CashFlowEntriesScreen>
                 ),
 
               DetailRow(label: 'Type:', value: transaction.type.toUpperCase()),
-              DetailRow(label: 'Category:', value: transaction.category),
+              DetailRow(
+                label: 'Category:',
+                value:
+                    transaction.category == 'full_salary'
+                        ? 'Staff Salary'
+                        : transaction.category,
+              ),
               DetailRow(label: 'Description:', value: transaction.description),
               DetailRow(
                 label: 'Date:',

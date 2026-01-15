@@ -49,21 +49,9 @@ class PdfService {
         .fold(0.0, (sum, t) => sum + t.amount);
 
     double totalExpenses = transactions
-        .where((t) => t.type == 'expense') // Only regular expenses
+        .where((t) => t.type == 'expense' || t.type == 'wallet expense')
+        // show expenses and wallet expenses both
         .fold(0.0, (sum, t) => sum + t.amount);
-
-    // Calculate commission from income transactions
-    // double commissionExpenses = transactions
-    //     .where(
-    //       (t) =>
-    //           t.type == 'income' &&
-    //           t.commission != null &&
-    //           t.commission! > 0 &&
-    //           (t.employeeId != null && t.employeeId!.isNotEmpty),
-    //     )
-    //     .fold(0.0, (sum, t) => sum + (t.commission ?? 0));
-
-    // double totalExpenses = regularExpenses + commissionExpenses;
 
     pdf.addPage(
       pw.MultiPage(
@@ -988,8 +976,11 @@ class PdfService {
       // For Income report: Only show income transactions
       allEntries = transactions.where((t) => t.type == 'income').toList();
     } else if (reportType == 'Expense') {
-      // For Expense report: ONLY show regular expenses, NOT commissions
-      allEntries = transactions.where((t) => t.type == 'expense').toList();
+      // For Expense report: ONLY show regular and wallet expenses, NOT commissions
+      allEntries =
+          transactions
+              .where((t) => t.type == 'expense' || t.type == 'wallet expense')
+              .toList();
       // Remove commission logic entirely
     } else if (reportType == 'Net Cash Flow' || reportType == 'all') {
       // For Net Cash Flow or All: Show all transactions as they are
@@ -1090,7 +1081,9 @@ class PdfService {
             pw.Padding(
               padding: const pw.EdgeInsets.all(6),
               child: pw.Text(
-                transaction.category,
+                transaction.category == 'full_salary'
+                    ? 'Staff Salary'
+                    : transaction.category,
                 style: contentStyle,
                 textAlign: pw.TextAlign.center,
               ),

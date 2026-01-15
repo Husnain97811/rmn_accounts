@@ -311,8 +311,9 @@ class _CashFlowScreenState extends State<CashFlowScreen>
                           listen: false,
                         );
                         loadingProvider.startLoading();
+                        provider.loadTransactions();
                         provider
-                            .loadTransactions()
+                            .loadWalletBalance()
                             .then((_) {
                               loadingProvider.stopLoading();
                             })
@@ -520,71 +521,162 @@ class _CashFlowScreenState extends State<CashFlowScreen>
   }
 
   void _showSubtractWalletDialog(BuildContext context) {
-    final amountController = TextEditingController();
-    final descriptionController = TextEditingController();
-
     showDialog(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Text('Subtract from Wallet'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Consumer<CashFlowProvider>(
-                  builder:
-                      (context, provider, _) => Text(
-                        'Available Balance: ${provider.walletBalance.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
+      builder: (context) {
+        String? selectedCategory;
+        //store current date and time in selectedDate
+        DateTime selectedDate = DateTime.now();
+        final amountController = TextEditingController();
+        final descriptionController = TextEditingController();
+        final formKey = GlobalKey<FormState>();
+
+        return AlertDialog(
+          title: Text('Subtract from Wallet'),
+          content: StatefulBuilder(
+            builder: (context, setState) {
+              return Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Consumer<CashFlowProvider>(
+                        builder:
+                            (context, provider, _) => Text(
+                              'Available Balance: ${provider.walletBalance.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                      ),
+                      SizedBox(height: 16),
+                      Consumer<CashFlowProvider>(
+                        builder:
+                            (context, provider, _) =>
+                                DropdownButtonFormField<String>(
+                                  value: selectedCategory,
+                                  decoration: InputDecoration(
+                                    labelText: 'Category',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: [
+                                    DropdownMenuItem(
+                                      value: null,
+                                      child: Text('Select Category'),
+                                    ),
+                                    ...provider.expenseCategories.map(
+                                      (category) => DropdownMenuItem(
+                                        value: category,
+                                        child: Text(category),
+                                      ),
+                                    ),
+                                  ],
+                                  onChanged: (value) {
+                                    setState(() {
+                                      selectedCategory = value;
+                                    });
+                                  },
+                                  validator:
+                                      (value) =>
+                                          value == null
+                                              ? 'Please select a category'
+                                              : null,
+                                ),
+                      ),
+                      SizedBox(height: 16),
+                      TextFormField(
+                        controller: amountController,
+                        keyboardType: TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Amount',
+                          prefixIcon: Icon(Icons.attach_money),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter an amount';
+                          }
+                          final amount = double.tryParse(value);
+                          if (amount == null || amount <= 0) {
+                            return 'Please enter a valid amount greater than 0';
+                          }
+                          return null;
+                        },
+                      ),
+                      SizedBox(height: 16),
+                      TextFormField(
+                        controller: descriptionController,
+                        decoration: InputDecoration(
+                          labelText: 'Description (Optional)',
+                          prefixIcon: Icon(Icons.description),
                         ),
                       ),
-                ),
-                SizedBox(height: 16),
-                TextField(
-                  controller: amountController,
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    labelText: 'Amount',
-                    prefixIcon: Icon(Icons.attach_money),
+                      SizedBox(height: 16),
+                      ListTile(
+                        leading: Icon(
+                          Icons.calendar_today,
+                          color: Colors.blueGrey[800],
+                        ),
+                        title: Text(
+                          'Transaction Date',
+                          style: TextStyle(
+                            fontSize: 14,
+                          ), // Adjusted for dialog size
+                        ),
+                        subtitle: Text(
+                          DateFormat('dd MMM yyyy').format(selectedDate),
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        trailing: Container(
+                          padding: EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade400,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Change Date',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: selectedDate,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
+                          );
+                          if (picked != null && picked != selectedDate) {
+                            setState(() {
+                              selectedDate = picked;
+                            });
+                          }
+                        },
+                        contentPadding: EdgeInsets.symmetric(horizontal: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: BorderSide(color: Colors.blueGrey[300]!),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                SizedBox(height: 16),
-                TextField(
-                  controller: descriptionController,
-                  decoration: InputDecoration(
-                    labelText: 'Description (Optional)',
-                    prefixIcon: Icon(Icons.description),
-                  ),
-                ),
-              ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  final amountText = amountController.text.trim();
-                  if (amountText.isEmpty) {
-                    SupabaseExceptionHandler.showErrorSnackbar(
-                      context,
-                      'Please enter an amount',
-                    );
-                    return;
-                  }
-
-                  final amount = double.tryParse(amountText);
-                  if (amount == null || amount <= 0) {
-                    SupabaseExceptionHandler.showErrorSnackbar(
-                      context,
-                      'Please enter a valid amount greater than 0',
-                    );
-                    return;
-                  }
-
+            TextButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  final amount = double.parse(amountController.text.trim());
                   try {
                     final loadingProvider = Provider.of<LoadingProvider>(
                       context,
@@ -600,6 +692,8 @@ class _CashFlowScreenState extends State<CashFlowScreen>
                     await cashFlowProvider.subtractFromWallet(
                       amount,
                       descriptionController.text.trim(),
+                      selectedCategory!,
+                      selectedDate,
                     );
 
                     Navigator.pop(context);
@@ -619,11 +713,13 @@ class _CashFlowScreenState extends State<CashFlowScreen>
                     );
                     loadingProvider.stopLoading();
                   }
-                },
-                child: Text('Add Expense'),
-              ),
-            ],
-          ),
+                }
+              },
+              child: Text('Add Expense'),
+            ),
+          ],
+        );
+      },
     );
   }
 

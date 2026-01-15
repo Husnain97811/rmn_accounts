@@ -207,7 +207,12 @@ class CashFlowTransactionTile extends StatelessWidget {
                     ],
               ),
       subtitleChildren: [
-        Text(transaction.category, style: TextStyle(fontSize: 11.sp)),
+        Text(
+          transaction.category == 'full_salary'
+              ? 'Staff Salary'
+              : transaction.category,
+          style: TextStyle(fontSize: 11.sp),
+        ),
         if (transaction.description.isNotEmpty) SizedBox(height: 4.sp),
         if (transaction.description.isNotEmpty)
           Text(
