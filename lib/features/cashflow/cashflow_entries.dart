@@ -68,33 +68,29 @@ class _CashFlowEntriesScreenState extends State<CashFlowEntriesScreen>
                     return ListView.builder(
                       padding: EdgeInsets.all(2.w),
                       itemCount: provider.filteredTransactions.length,
-                      itemBuilder:
-                          (context, index) => CashFlowTransactionTile(
-                            transaction: provider.filteredTransactions[index],
-                            onEdit:
-                                () => _showTransactionDialog(
-                                  context,
-                                  transaction:
-                                      provider.filteredTransactions[index],
-                                ),
+                      itemBuilder: (context, index) {
+                        final transaction =
+                            provider.filteredTransactions[index];
 
-                            // if i delete employee commission paid transaction, it should reverse operation like deduct the deleted transaction amount from commission paid and re add to  the commission_unpaid from employee
-                            onDelete:
-                                () => provider.deleteTransaction(
-                                  int.parse(
-                                    provider.filteredTransactions[index].id,
-                                  ),
-                                  context,
-                                  transaction:
-                                      provider
-                                          .filteredTransactions[index], // Add this line
-                                ),
-                            onTap:
-                                () => _showTransactionDetails(
-                                  context,
-                                  provider.filteredTransactions[index],
-                                ),
-                          ),
+                        return CashFlowTransactionTile(
+                          transaction: transaction,
+                          // Don't show edit/delete buttons for Investor Profit transactions
+                          onEdit:
+                              () => _showTransactionDialog(
+                                context,
+                                transaction: transaction,
+                              ),
+                          onDelete:
+                              () => provider.deleteTransaction(
+                                int.parse(transaction.id),
+                                context,
+                                transaction: transaction,
+                              ),
+                          onTap:
+                              () =>
+                                  _showTransactionDetails(context, transaction),
+                        );
+                      },
                     );
                   },
                 ),

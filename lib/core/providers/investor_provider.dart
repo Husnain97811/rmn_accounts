@@ -1,10 +1,10 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:path/path.dart';
 import 'package:provider/provider.dart';
 import 'package:rmn_accounts/shared/widgets/edit_investor_dialog.dart';
 import 'package:rmn_accounts/utils/views.dart';
-import 'package:supabase/supabase.dart';
 import 'package:uuid/uuid.dart';
 
 class InvestorProvider with ChangeNotifier {
@@ -13,7 +13,7 @@ class InvestorProvider with ChangeNotifier {
   final SupabaseClient _supabase;
   List<Investor> _investors = [];
   bool _isLoading = false;
-  final AdminAuthService _adminAuthService = AdminAuthService(); // Add this
+  // final AdminAuthService _adminAuthService = AdminAuthService(); // Add this
   late LoadingProvider loadingProvider;
 
   List<Investor> get investors => _investors;
@@ -105,60 +105,203 @@ class InvestorProvider with ChangeNotifier {
     }
   }
 
+  // Helper to generate expense ID (matching your expense screen logic)
+  Future<String> _generateExpenseId() async {
+    String generateCustomId() {
+      final now = DateTime.now();
+      final milliseconds = now.millisecondsSinceEpoch;
+      final paddedId = milliseconds.toString().substring(7, 13);
+      return paddedId.padLeft(6, '0');
+    }
+
+    Future<bool> isIdUnique(String id) async {
+      final result =
+          await _supabase
+              .from('cash_flow_transactions')
+              .select('id')
+              .eq('id', id)
+              .maybeSingle();
+      return result == null;
+    }
+
+    String customId = generateCustomId();
+    bool isUnique = await isIdUnique(customId);
+
+    if (!isUnique) {
+      final random = Random();
+      customId = '${customId.substring(0, 5)}${random.nextInt(10)}';
+      isUnique = await isIdUnique(customId);
+    }
+
+    if (!isUnique) {
+      throw Exception('Failed to generate unique expense ID');
+    }
+
+    return customId;
+  }
+
+  // Process payment - creates expense with custom ID
   Future<void> processPayment({
     required BuildContext context,
     required String investorId,
     required double amount,
     required int installmentNumber,
+    required DateTime paymentDate,
+    String? notes,
   }) async {
     try {
       final investor = _investors.firstWhere((i) => i.id == investorId);
-      final updatedPaid = Map<String, bool>.from(investor.paidInstallments);
-      updatedPaid['m$installmentNumber'] = true;
+
+      // Generate expense ID (6-digit string)
+      final expenseId = await _generateExpenseId();
+
+      // Create expense record - WITHOUT investor_id since your table doesn't have it
+      final expenseData = {
+        'id': expenseId, // 6-digit string
+        'type': 'expense',
+        'description':
+            notes ??
+            'Profit Payment - ${investor.name} (Installment M$installmentNumber)',
+        'amount': amount,
+        'user_id': _supabase.auth.currentUser?.id,
+        'date': paymentDate.toIso8601String(),
+        'category': 'investor profit',
+
+        // Note: No investor_id column in your expenses table
+        // If you want to link expenses to investors, you need to add this column
+        // 'investor_id': investorId, // UNCOMMENT if you add this column
+      };
+
+      print('Inserting expense data: $expenseData');
+
+      await _supabase.from('cash_flow_transactions').insert(expenseData);
+
+      // Update investor's paid installments
+      final updatedPaid = Map<String, Map<String, dynamic>>.from(
+        investor.paidInstallments,
+      );
+
+      updatedPaid['m$installmentNumber'] = {
+        'paid': true,
+        'paidDate': paymentDate.toIso8601String(),
+        'paidAmount': amount,
+        'expense_id': expenseId,
+      };
 
       await _supabase
           .from('investors')
           .update({
             'paid_installments': updatedPaid,
             'unpaid_profit_balance': investor.unpaidProfitBalance - amount,
-            'return_amount': investor.returnAmount + amount,
+            'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', investorId);
 
       await _refreshInvestors();
       notifyListeners();
     } catch (e) {
+      print('Payment error: $e');
       throw Exception('Payment failed: $e');
     }
   }
 
+  // Process return - uses UUID for investor_id
   Future<void> processReturn({
     required String investorId,
     required double amount,
+    String? notes,
   }) async {
     try {
       final user = _supabase.auth.currentUser;
+      final investor = _investors.firstWhere((i) => i.id == investorId);
 
-      // 1. Create transaction record
-      await _supabase.from('return_transactions').insert({
-        'investor_id': investorId,
+      print('Processing return for investor: ${investor.name}');
+      print('Investor ID (UUID): $investorId');
+
+      // Create return transaction record
+      final returnData = {
+        'investor_id': investorId, // UUID
         'amount': amount,
-        'processed_by': user?.id,
+        'processed_by': user?.id, // UUID from auth
         'return_date': DateTime.now().toIso8601String(),
-      });
+        'notes': notes,
+      };
 
-      // 2. Call PostgreSQL function with correct parameter names
-      await _supabase.rpc(
-        'process_investor_return',
-        params: {'p_investor_id': investorId, 'p_amount': amount},
-      );
+      print('Inserting return data: $returnData');
 
-      // 3. Refresh data
+      await _supabase.from('return_transactions').insert(returnData);
+
+      // Update investor return amount
+      await _supabase
+          .from('investors')
+          .update({
+            'return_amount': investor.returnAmount + amount,
+            'balance_amount': investor.balanceAmount - amount,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', investorId);
+
       await _refreshInvestors();
       notifyListeners();
+
+      print('Return transaction successful');
     } catch (e) {
-      print('Return error: $e');
+      print('Return error details:');
+      print(e.toString());
       throw Exception('Return failed: ${e.toString()}');
+    }
+  }
+
+  // Get profit payments from expenses table
+  Future<List<Map<String, dynamic>>> getProfitPayments(
+    String investorId,
+  ) async {
+    try {
+      print('Fetching profit payments for investor: $investorId');
+
+      final response = await _supabase
+          .from('cash_flow_transactions')
+          .select('*')
+          .eq('investor_id', investorId)
+          .eq('category', 'Profit Payment')
+          .order('date', ascending: false);
+
+      final payments = List<Map<String, dynamic>>.from(response);
+
+      return payments;
+    } catch (e) {
+      print('Error fetching profit payments: $e');
+      return [];
+    }
+  }
+
+  // Get return transactions
+  Future<List<Map<String, dynamic>>> getReturnTransactions(
+    String investorId,
+  ) async {
+    try {
+      print('Fetching return transactions for investor: $investorId');
+
+      final response = await _supabase
+          .from('return_transactions')
+          .select(
+            '*, profiles!return_transactions_processed_by_fkey(full_name)',
+          )
+          .eq('investor_id', investorId)
+          .order('return_date', ascending: false);
+
+      final transactions = List<Map<String, dynamic>>.from(response);
+      print('Found ${transactions.length} return transactions');
+
+      if (transactions.isNotEmpty) {
+        print('First transaction: ${transactions[0]}');
+      }
+
+      return transactions;
+    } catch (e) {
+      print('Error fetching return transactions: $e');
+      print(e.toString());
+      return [];
     }
   }
 
@@ -186,7 +329,6 @@ class InvestorProvider with ChangeNotifier {
 
       // Insert investor
       // / Debug: Print investor details
-      print('Adding investor: ${investor.toJson()}');
 
       await _supabase.from('investors').insert(investor.toJson()).select('*');
 
@@ -347,10 +489,8 @@ class InvestorProvider with ChangeNotifier {
     required BuildContext context,
   }) async {
     try {
-      // Verify admin status
       if (!await verifyAdmin(context)) return;
 
-      // Convert dates to ISO strings for Supabase
       final updateData = {
         'name': originalInvestor.name,
         'cnic': originalInvestor.cnic,
@@ -361,33 +501,23 @@ class InvestorProvider with ChangeNotifier {
         'profit_value': originalInvestor.profitValue,
         'investment_date': originalInvestor.investmentDate.toIso8601String(),
         'end_date': originalInvestor.endDate.toIso8601String(),
-        // 'profit_calculation_type': originalInvestor.profitCalculationType,
+        'profit_duration': originalInvestor.profitDuration,
+        'time_duration': originalInvestor.timeDuration,
+        'total_installments': originalInvestor.totalInstallments,
+        'paid_installments': originalInvestor.paidInstallments,
         'edited_by': originalInvestor.editedBy,
         'updated_at': DateTime.now().toIso8601String(),
       };
 
-      debugPrint(
-        'Updating investor ${originalInvestor.id} with data: $updateData',
-      );
-
-      final response = await _supabase
+      await _supabase
           .from('investors')
           .update(updateData)
           .eq('id', originalInvestor.id);
 
-      debugPrint('Update response: $response');
-
-      // Verify the update
-      final updatedRecord =
-          await _supabase
-              .from('investors')
-              .select()
-              .eq('id', originalInvestor.id)
-              .single();
-
-      debugPrint('Updated record: $updatedRecord');
+      // Refresh the investor list
+      await getInvestorsWithSchedules(context);
     } catch (e) {
-      debugPrint('Error in editWithVerification: $e');
+      debugPrint('Error updating investor: $e');
       rethrow;
     }
   }

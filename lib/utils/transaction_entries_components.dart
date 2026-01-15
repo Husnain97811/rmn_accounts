@@ -184,6 +184,9 @@ class CashFlowTransactionTile extends StatelessWidget {
         transaction.category.toLowerCase() == 'advance' ||
         transaction.category.toLowerCase() == 'full_salary';
 
+    final investorProfit =
+        transaction.category.toLowerCase() == 'investor profit';
+
     return BaseTransactionTile(
       leadingIcon:
           transaction.commission != null && transaction.commission! > 0
@@ -197,7 +200,7 @@ class CashFlowTransactionTile extends StatelessWidget {
       onTap: onTap,
       // Only show popup menu if NOT an employee transaction
       trailing:
-          isEmployeeTransaction
+          isEmployeeTransaction || investorProfit
               ? null // No trailing widget for employee transactions
               : PopupMenuButton(
                 itemBuilder:

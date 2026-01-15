@@ -1,5 +1,4 @@
-import 'package:intl/intl.dart';
-import 'package:rmn_accounts/features/auth/presentation/view_Model/profit_schedule.dart';
+import 'package:rmn_accounts/utils/views.dart';
 import 'package:uuid/uuid.dart';
 
 class Investor {
@@ -24,7 +23,7 @@ class Investor {
   final DateTime endDate;
   final String? profileImage;
 
-  final Map<String, bool> paidInstallments;
+  final Map<String, Map<String, dynamic>> paidInstallments;
   final int totalInstallments;
 
   final String createdBy;
@@ -34,7 +33,7 @@ class Investor {
 
   final DateTime updatedAt;
   final List<ProfitSchedule> profitSchedules;
-  final DateTime? lastProfitAccrualDate; // Add this field
+  final DateTime? lastProfitAccrualDate;
   double? paidCommission;
   double? unpaidCommission;
 
@@ -65,7 +64,7 @@ class Investor {
     required this.updatedAt,
     required this.profitSchedules,
     this.profileImage,
-    this.lastProfitAccrualDate, // Added
+    this.lastProfitAccrualDate,
     this.paidCommission,
     this.unpaidCommission,
     required this.paidInstallments,
@@ -73,6 +72,24 @@ class Investor {
   });
 
   factory Investor.fromJson(Map<String, dynamic> json) {
+    // Parse paidInstallments from JSON
+    Map<String, Map<String, dynamic>> paidInstallments = {};
+    if (json['paid_installments'] != null) {
+      final rawPaid = json['paid_installments'] as Map<String, dynamic>;
+      rawPaid.forEach((key, value) {
+        if (value is Map<String, dynamic>) {
+          paidInstallments[key] = value;
+        } else if (value is bool) {
+          // For backward compatibility
+          paidInstallments[key] = {
+            'paid': value,
+            'paidDate': null,
+            'paidAmount': null,
+          };
+        }
+      });
+    }
+
     return Investor(
       id: json['id'] as String? ?? const Uuid().v4(),
       name: json['name'] as String? ?? '',
@@ -86,7 +103,7 @@ class Investor {
       returnAmount: (json['return_amount'] as num?)?.toDouble() ?? 0.0,
       balanceAmount: (json['balance_amount'] as num?)?.toDouble() ?? 0.0,
       profitCalculationType:
-          json['profit_calculation_type'] as String? ?? 'fixed',
+          json['profit_calculation_type'] as String? ?? 'approx',
       profitDuration: (json['profit_duration'] as num?)?.toInt() ?? 1,
       timeDuration: (json['time_duration'] as num?)?.toInt() ?? 6,
       profitValue: (json['profit_value'] as num?)?.toDouble() ?? 0.0,
@@ -108,7 +125,7 @@ class Investor {
               : DateTime.now(),
       createdBy: json['created_by'] as String? ?? 'system',
       editedBy: json['edited_by'] as String? ?? 'system',
-      paidInstallments: Map<String, bool>.from(json['paid_installments'] ?? {}),
+      paidInstallments: paidInstallments,
       totalInstallments: json['total_installments'] ?? 0,
       profileImage: json['profile_picture_url'] as String?,
       createdAt:
@@ -149,21 +166,19 @@ class Investor {
     'initial_investment_amount': initialInvestmentAmount,
     'return_amount': returnAmount,
     'balance_amount': balanceAmount,
-    // 'profit_calculation_type': profitCalculationType,
     'investment_date': DateFormat('yyyy-MM-dd').format(investmentDate),
     'end_date':
-        endDate != null
-            ? DateFormat('yyyy-MM-dd').format(endDate!)
-            : null, // Handle null if nullable
+        endDate != null ? DateFormat('yyyy-MM-dd').format(endDate!) : null,
     'profit_duration': profitDuration,
     'time_duration': timeDuration,
     'profit_value': profitValue,
     'unpaid_profit_balance': unpaidProfitBalance,
     'is_profit_paid_for_cycle': isProfitPaidForCycle,
+    'paid_installments': paidInstallments,
+    'total_installments': totalInstallments,
     'status': status,
     "expire_date": null,
     'profile_picture_url': profileImage,
-
     'created_by': createdBy,
     'edited_by': editedBy,
     'created_at': createdAt.toIso8601String(),
@@ -193,6 +208,12 @@ class Investor {
     DateTime? endDate,
     String? editedBy,
     DateTime? updatedAt,
+    Map<String, Map<String, dynamic>>? paidInstallments,
+    int? totalInstallments,
+    List<ProfitSchedule>? profitSchedules,
+
+    double? paidCommission,
+    double? unpaidCommission,
   }) => Investor(
     id: id,
     name: name ?? this.name,
@@ -208,8 +229,8 @@ class Investor {
     profitCalculationType: profitCalculationType ?? this.profitCalculationType,
     profitDuration: profitDuration ?? this.profitDuration,
     timeDuration: timeDuration ?? this.timeDuration,
-    paidInstallments: paidInstallments,
-    totalInstallments: totalInstallments,
+    paidInstallments: paidInstallments ?? this.paidInstallments,
+    totalInstallments: totalInstallments ?? this.totalInstallments,
     profitValue: profitValue ?? this.profitValue,
     unpaidProfitBalance: unpaidProfitBalance ?? this.unpaidProfitBalance,
     isProfitPaidForCycle: isProfitPaidForCycle ?? this.isProfitPaidForCycle,
@@ -222,22 +243,55 @@ class Investor {
     editedBy: editedBy ?? this.editedBy,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
-    profitSchedules: profitSchedules,
+    profitSchedules: profitSchedules ?? this.profitSchedules,
     paidCommission: paidCommission ?? this.paidCommission,
     unpaidCommission: unpaidCommission ?? this.unpaidCommission,
   );
 
+  /// Updates agreement details and automatically adjusts installments
+  Investor updateAgreementDetails({
+    double? newProfitValue,
+    int? newTimeDuration,
+    int? newProfitDuration,
+  }) {
+    final updatedTimeDuration = newTimeDuration ?? timeDuration ?? 6;
+    final updatedProfitDuration = newProfitDuration ?? profitDuration;
+
+    // Calculate new total installments
+    final newTotalInstallments = updatedTimeDuration ~/ updatedProfitDuration;
+
+    // Create new paid installments map (preserve existing payments)
+    final newPaidInstallments = <String, Map<String, dynamic>>{};
+    for (var i = 1; i <= newTotalInstallments; i++) {
+      if (i <= totalInstallments && paidInstallments.containsKey('m$i')) {
+        newPaidInstallments['m$i'] = paidInstallments['m$i']!;
+      } else {
+        newPaidInstallments['m$i'] = {
+          'paid': false,
+          'paidDate': null,
+          'paidAmount': null,
+        };
+      }
+    }
+
+    return copyWith(
+      profitValue: newProfitValue ?? profitValue,
+      timeDuration: updatedTimeDuration,
+      profitDuration: updatedProfitDuration,
+      totalInstallments: newTotalInstallments,
+      paidInstallments: newPaidInstallments,
+      // Update end date based on new duration
+      endDate: DateTime(
+        investmentDate.year,
+        investmentDate.month + updatedTimeDuration,
+        investmentDate.day,
+      ),
+    );
+  }
+
   DateTime? get nextAccrualDate {
     if (profitSchedules.isEmpty) return null;
     final lastAccrual = lastProfitAccrualDate ?? investmentDate;
-    // final currentSchedule = profitSchedules.lastWhere(
-    // (s) => s.isActiveSchedule,
-    // orElse: () => profitSchedules.last,
-    // );
-    return DateTime(
-      lastAccrual.year,
-      // lastAccrual.month + currentSchedule.profitIntervalMonths,
-      lastAccrual.day,
-    );
+    return DateTime(lastAccrual.year, lastAccrual.day);
   }
 }

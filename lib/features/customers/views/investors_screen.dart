@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'dart:math';
-
 // import 'package:pdf_render/pdf_render.dart' as prefix;
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:mime/mime.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path/path.dart' as path;
@@ -11,13 +13,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:provider/provider.dart';
 import 'package:pdf/widgets.dart' as pw;
-
 import 'package:rmn_accounts/utils/views.dart';
+import 'package:sizer/sizer.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
-
   @override
   State<CustomersScreen> createState() => _CustomersScreenState();
 }
@@ -28,7 +30,6 @@ class _CustomersScreenState extends State<CustomersScreen>
   final userid = Supabase.instance.client.auth.currentUser?.id ?? 'Unknown';
   // final _verificationService = VerificationService();
   final GlobalKey<ScaffoldMessengerState> _scaffoldKey = GlobalKey();
-
   @override
   void initState() {
     super.initState();
@@ -54,13 +55,11 @@ class _CustomersScreenState extends State<CustomersScreen>
 
   @override
   bool get wantKeepAlive => true;
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final investorProvider = Provider.of<InvestorProvider>(context);
     // final user = Supabase.instance.client.auth.currentUser;
-
     return ScaffoldMessenger(
       key: _scaffoldKey,
       child: ChangeNotifierProvider(
@@ -96,14 +95,16 @@ class _CustomersScreenState extends State<CustomersScreen>
                       height: 24.sp,
                       width: double.infinity,
                       padding: EdgeInsets.symmetric(horizontal: 23.sp),
+
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Investors List',
+                            'Investors',
                             style: TextStyle(
                               fontSize: 15.sp,
                               fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
                             ),
                           ),
                           Row(
@@ -142,7 +143,6 @@ class _CustomersScreenState extends State<CustomersScreen>
   void _showInvestorActions(BuildContext context) {
     final searchController = TextEditingController();
     Investor? foundInvestor;
-
     showDialog(
       context: context,
       builder: (ctx) {
@@ -167,7 +167,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                           final result = provider.searchInvestor(
                             searchController.text,
                           );
-
                           if (result != null) {
                             setState(() => foundInvestor = result);
                           } else {
@@ -253,14 +252,14 @@ class _CustomersScreenState extends State<CustomersScreen>
             const SizedBox(height: 10),
             Row(
               children: [
-                _buildInfoChip(
-                  'Balance: ${investor.balanceAmount.toStringAsFixed(2)}',
-                  Colors.blue,
-                ),
+                // _buildInfoChip(
+                // 'Balance: ${investor.balanceAmount.toStringAsFixed(0)}',
+                // Colors.blue,
+                // ),
                 // const SizedBox(width: 8),
                 // _buildInfoChip(
-                //   'Pending Profit: ${investor.unpaidProfitBalance.toStringAsFixed(2)}',
-                //   Colors.green,
+                // 'Pending Profit: ${investor.unpaidProfitBalance.toStringAsFixed(2)}',
+                // Colors.green,
                 // ),
               ],
             ),
@@ -271,45 +270,48 @@ class _CustomersScreenState extends State<CustomersScreen>
   }
 
   // void _showActionSelectionDialog(BuildContext context, Investor investor) {
-  //   showDialog(
-  //     context: context,
-  //     builder:
-  //         (ctx) => AlertDialog(
-  //           title: Text('Select Action for ${investor.name}'),
-  //           content: Column(
-  //             mainAxisSize: MainAxisSize.min,
-  //             children: [
-  //               _buildActionButton(
-  //                 context,
-  //                 icon: Icons.payment,
-  //                 label: 'Pay Profit',
-  //                 onTap: () {
-  //                   Navigator.pop(context);
-  //                   _showPayProfitDialog(context, investor);
-  //                 },
-  //                 color: Colors.green,
-  //               ),
-  //               const SizedBox(height: 10),
-  //               _buildActionButton(
-  //                 context,
-  //                 icon: Icons.assignment_return,
-  //                 label: 'Return Amount',
-  //                 onTap: () {
-  //                   Navigator.pop(context);
-  //                   _showReturnDialog(context, investor);
-  //                 },
-  //                 color: Colors.blue,
-  //               ),
-  //             ],
-  //           ),
-  //         ),
-  //   );
+  // showDialog(
+  // context: context,
+  // builder:
+  // (ctx) => AlertDialog(
+  // title: Text('Select Action for ${investor.name}'),
+  // content: Column(
+  // mainAxisSize: MainAxisSize.min,
+  // children: [
+  // _buildActionButton(
+  // context,
+  // icon: Icons.payment,
+  // label: 'Pay Profit',
+  // onTap: () {
+  // Navigator.pop(context);
+  // _showPayProfitDialog(context, investor);
+  // },
+  // color: Colors.green,
+  // ),
+  // const SizedBox(height: 10),
+  // _buildActionButton(
+  // context,
+  // icon: Icons.assignment_return,
+  // label: 'Return Amount',
+  // onTap: () {
+  // Navigator.pop(context);
+  // _showReturnDialog(context, investor);
+  // },
+  // color: Colors.blue,
+  // ),
+  // ],
+  // ),
+  // ),
+  // );
   // }
-
   void _showPayProfitDialog(BuildContext context, Investor investor) {
     final totalInstallments = investor.timeDuration! ~/ investor.profitDuration;
     int? selectedInstallment;
-
+    final amountController = TextEditingController(
+      text: _calculateMonthlyProfit(investor).toStringAsFixed(0),
+    );
+    final notesController = TextEditingController();
+    DateTime paidDate = DateTime.now();
     showDialog(
       context: context,
       builder:
@@ -317,37 +319,99 @@ class _CustomersScreenState extends State<CustomersScreen>
             builder: (context, setState) {
               return AlertDialog(
                 title: Text('Pay Installment for ${investor.name}'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    DropdownButtonFormField<int>(
-                      value: selectedInstallment,
-                      items:
-                          List.generate(totalInstallments, (i) => i + 1)
-                              .where(
-                                (i) =>
-                                    !(investor.paidInstallments['m$i'] == true),
-                              )
-                              .map(
-                                (i) => DropdownMenuItem(
-                                  value: i,
-                                  child: Text('Installment M$i'),
-                                ),
-                              )
-                              .toList(),
-                      onChanged:
-                          (value) =>
-                              setState(() => selectedInstallment = value),
-                      decoration: InputDecoration(
-                        labelText: 'Select Installment',
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<int>(
+                        value: selectedInstallment,
+                        items:
+                            List.generate(totalInstallments, (i) => i + 1)
+                                .where(
+                                  (i) =>
+                                      !(investor
+                                              .paidInstallments['m$i']?['paid'] ==
+                                          true),
+                                )
+                                .map(
+                                  (i) => DropdownMenuItem(
+                                    value: i,
+                                    child: Text('Installment M$i'),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            selectedInstallment = value;
+                            amountController.text = _calculateMonthlyProfit(
+                              investor,
+                            ).toStringAsFixed(0);
+                          });
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Select Installment',
+                          border: OutlineInputBorder(),
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 20),
-                    Text(
-                      'Amount: ${_calculateMonthlyProfit(investor).toStringAsFixed(2)}',
-                      style: TextStyle(fontSize: 16),
-                    ),
-                  ],
+                      SizedBox(height: 16),
+                      TextField(
+                        controller: amountController,
+                        keyboardType: TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Payment Amount',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.attach_money),
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      GestureDetector(
+                        onTap: () async {
+                          final date = await showDatePicker(
+                            context: context,
+                            initialDate: paidDate,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime(2100),
+                          );
+                          if (date != null) {
+                            setState(() => paidDate = date);
+                          }
+                        },
+                        child: AbsorbPointer(
+                          child: TextFormField(
+                            decoration: InputDecoration(
+                              labelText: 'Payment Date',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.calendar_today),
+                            ),
+                            controller: TextEditingController(
+                              text: DateFormat('yyyy-MM-dd').format(paidDate),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      TextField(
+                        controller: notesController,
+                        decoration: InputDecoration(
+                          labelText: 'Notes (Optional)',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.note),
+                        ),
+                        maxLines: 2,
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Note: This will create an expense record in the system.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 actions: [
                   TextButton(
@@ -363,21 +427,49 @@ class _CustomersScreenState extends State<CustomersScreen>
                                 context,
                                 listen: false,
                               );
+                              // Validate amount
+                              final amount = double.tryParse(
+                                amountController.text,
+                              );
+                              if (amount == null || amount <= 0) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Please enter a valid positive amount',
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                                return;
+                              }
                               try {
                                 await provider.processPayment(
                                   context: context,
                                   investorId: investor.id,
-                                  amount: _calculateMonthlyProfit(investor),
+                                  amount: amount,
                                   installmentNumber: selectedInstallment!,
+                                  paymentDate: paidDate,
+                                  notes:
+                                      notesController.text.isNotEmpty
+                                          ? notesController.text
+                                          : null,
                                 );
                                 Navigator.pop(context);
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Payment successful')),
+                                  SnackBar(
+                                    content: Text(
+                                      'Payment recorded successfully. Expense ID generated.',
+                                    ),
+                                    backgroundColor: Colors.green,
+                                  ),
                                 );
+                                // Refresh investor list
+                                provider.getInvestorsWithSchedules(context);
                               } catch (e) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text('Error: ${e.toString()}'),
+                                    backgroundColor: Colors.red,
                                   ),
                                 );
                               }
@@ -393,9 +485,8 @@ class _CustomersScreenState extends State<CustomersScreen>
 
   void _showReturnDialog(BuildContext context, Investor investor) {
     final amountController = TextEditingController();
+    final notesController = TextEditingController();
     final provider = Provider.of<InvestorProvider>(context, listen: false);
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-
     showDialog(
       context: context,
       builder:
@@ -405,7 +496,17 @@ class _CustomersScreenState extends State<CustomersScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Current Balance: ${investor.balanceAmount.toStringAsFixed(2)}',
+                  'Invested Amount: ${investor.initialInvestmentAmount.toStringAsFixed(0)}',
+                  style: TextStyle(fontSize: 16),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  'Return Amount: ${investor.returnAmount.toStringAsFixed(0)}',
+                  style: TextStyle(fontSize: 16),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  'Balance Amount: ${investor.balanceAmount.toStringAsFixed(0)}',
                   style: TextStyle(fontSize: 16),
                 ),
                 SizedBox(height: 20),
@@ -414,8 +515,19 @@ class _CustomersScreenState extends State<CustomersScreen>
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
                     labelText: 'Amount to Return',
+                    border: OutlineInputBorder(),
                     prefixText: ' ',
                   ),
+                ),
+                SizedBox(height: 16),
+                TextField(
+                  controller: notesController,
+                  decoration: InputDecoration(
+                    labelText: 'Notes (Optional)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.note),
+                  ),
+                  maxLines: 2,
                 ),
               ],
             ),
@@ -427,9 +539,8 @@ class _CustomersScreenState extends State<CustomersScreen>
               ElevatedButton(
                 onPressed: () async {
                   final amount = double.tryParse(amountController.text) ?? 0;
-
                   if (amount <= 0) {
-                    scaffoldMessenger.showSnackBar(
+                    ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Please enter a valid positive amount'),
                         backgroundColor: Colors.red,
@@ -437,25 +548,34 @@ class _CustomersScreenState extends State<CustomersScreen>
                     );
                     return;
                   }
-
+                  if (amount > investor.balanceAmount) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Amount exceeds available balance'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
                   try {
                     await provider.processReturn(
                       investorId: investor.id,
                       amount: amount,
+                      notes:
+                          notesController.text.isNotEmpty
+                              ? notesController.text
+                              : null,
                     );
-
-                    // Close dialog first
                     Navigator.pop(ctx);
-
-                    // Then show success message using the saved scaffoldMessenger
-                    scaffoldMessenger.showSnackBar(
+                    ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Return processed successfully'),
                         backgroundColor: Colors.green,
                       ),
                     );
+                    // Refresh investor data
+                    provider.getInvestorsWithSchedules(context);
                   } catch (e) {
-                    // Show error using the dialog's context
                     ScaffoldMessenger.of(ctx).showSnackBar(
                       SnackBar(
                         content: Text('Return failed: ${e.toString()}'),
@@ -495,37 +615,30 @@ class _CustomersScreenState extends State<CustomersScreen>
       type: FileType.image,
       allowMultiple: false,
     );
-
     if (result == null) return;
-
     final loadingProvider = Provider.of<LoadingProvider>(
       context,
       listen: false,
     );
     loadingProvider.startLoading();
-
     try {
       var file = File(result.files.single.path!);
-
       // Compress and validate
       file = await FileUtils.compressAndValidateFile(
         file,
         isImage: true,
         quality: 80,
       );
-
       final url = await SupabaseStorageService.uploadFile(
         bucket: 'investorprofilepictures',
         userId: investor.id,
         file: file,
       );
-
       if (url != null) {
         await _supabase
             .from('investors')
             .update({'profile_picture_url': url})
             .eq('id', investor.id);
-
         // Refresh investor data
         final investorProvider = Provider.of<InvestorProvider>(
           context,
@@ -548,21 +661,16 @@ class _CustomersScreenState extends State<CustomersScreen>
       allowedExtensions: ['jpg', 'jpeg', 'png', 'tiff'],
       allowMultiple: true,
     );
-
     if (result == null || result.files.isEmpty) return;
-
     final loadingProvider = Provider.of<LoadingProvider>(
       context,
       listen: false,
     );
     loadingProvider.startLoading();
-
     try {
       for (var platformFile in result.files) {
         if (platformFile.path == null) continue;
-
         var file = File(platformFile.path!);
-
         // Validate document type
         if (!await FileUtils.isScannedDocument(file)) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -572,20 +680,17 @@ class _CustomersScreenState extends State<CustomersScreen>
           );
           continue;
         }
-
         // Compress and validate size
         file = await documentsFileUtils.compressAndValidateFile(
           file,
           isImage: true,
           quality: 70,
         );
-
         final url = await SupabaseStorageService.uploadFile(
           bucket: 'investordocuments',
           userId: investor.id,
           file: file,
         );
-
         if (url != null) {
           // Insert into new documents table
           await _supabase.from('investor_documents').insert({
@@ -595,7 +700,6 @@ class _CustomersScreenState extends State<CustomersScreen>
           });
         }
       }
-
       // Refresh investor data
       final investorProvider = Provider.of<InvestorProvider>(
         context,
@@ -630,8 +734,23 @@ class _CustomersScreenState extends State<CustomersScreen>
           ],
         ),
       );
+    } else if (provider.investors.isEmpty) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(Icons.castle_sharp, color: Colors.white, size: 32.sp),
+          Text(
+            'No investors found.',
+            style: GoogleFonts.aBeeZee(
+              fontSize: 13.sp,
+              color: AppColors.whitecolor,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      );
     }
-
     return GridView.builder(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
@@ -653,7 +772,6 @@ class _CustomersScreenState extends State<CustomersScreen>
           random.nextInt(200),
           random.nextInt(200),
         );
-
         return Card(
           color:
               investor.status == 'active'
@@ -728,7 +846,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                           ),
                         ),
                         SizedBox(height: 3.3.sp), // 16 -> 2.h
-
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -748,9 +865,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                             ),
                           ],
                         ),
-
                         SizedBox(height: 13.3.sp), // 16 -> 2.h
-
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.center,
@@ -772,9 +887,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                         ),
                       ],
                     ),
-
                     SizedBox(height: 10.sp),
-
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
@@ -793,12 +906,10 @@ class _CustomersScreenState extends State<CustomersScreen>
                               );
                               return;
                             }
-
                             await _generateInvestorDocumentsPdf(investor);
                           },
                           icon: Icon(Icons.document_scanner),
                         ),
-
                         InkWell(
                           onTap:
                               () => _showInvestorsDetailsDialog(
@@ -822,7 +933,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                             ),
                           ),
                         ),
-
                         PopupMenuButton<String>(
                           icon: Icon(
                             Icons.more_vert,
@@ -936,7 +1046,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                             } else if (value == 'delete') {
                               final currentUser =
                                   Supabase.instance.client.auth.currentUser;
-
                               _showDeleteInvestorDialog(
                                 context,
                                 investor,
@@ -952,12 +1061,12 @@ class _CustomersScreenState extends State<CustomersScreen>
                     // Additional Info
                     // SizedBox(height: 1.h),
                     // _buildInfoRow(
-                    //   'Invested',
-                    //   '${investor.initialInvestmentAmount.toStringAsFixed(2)}',
+                    // 'Invested',
+                    // '${investor.initialInvestmentAmount.toStringAsFixed(2)}',
                     // ),
                     // _buildInfoRow(
-                    //   'Balance',
-                    //   '${investor.unpaidProfitBalance.toStringAsFixed(2)}',
+                    // 'Balance',
+                    // '${investor.unpaidProfitBalance.toStringAsFixed(2)}',
                     // ),
                   ],
                 ),
@@ -978,9 +1087,9 @@ class _CustomersScreenState extends State<CustomersScreen>
       'idCode': '',
       'investment': 0.0,
       'balance_amount': 0.0,
-      'investmen_date': '',
-      'end_date': DateTime.now(),
-      'calcType': 'percentage',
+      'investmen_date': DateTime.now(),
+      'end_date': DateTime.now().add(const Duration(days: 90)), // Add default
+      'calcType': 'approx',
       'profitValue': 0.0,
       // 'effectiveAfter': 0,
       'profit_duration': 0,
@@ -989,15 +1098,17 @@ class _CustomersScreenState extends State<CustomersScreen>
       'email': '',
       'address': '',
     };
-
     final startDateController = TextEditingController(
-      text: DateFormat('yyyy-MM-dd').format(formData['investmentDate']),
+      text: DateFormat(
+        'yyyy-MM-dd',
+      ).format(formData['investmentDate'] as DateTime? ?? DateTime.now()),
     );
-
     final endDateController = TextEditingController(
-      text: DateFormat('yyyy-MM-dd').format(formData['end_date']),
+      text: DateFormat('yyyy-MM-dd').format(
+        formData['end_date'] as DateTime? ??
+            DateTime.now().add(const Duration(days: 180)),
+      ),
     );
-
     showDialog(
       context: context,
       builder:
@@ -1018,7 +1129,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                       onSaved: (v) => formData['idCode'] = v!,
                       validator: (v) => v!.isEmpty ? 'Required' : null,
                     ),
-
                     _buildFormField(
                       label: 'Phone *',
                       onSaved: (v) => formData['phone'] = v!,
@@ -1037,7 +1147,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                       label: 'Address',
                       onSaved: (v) => formData['address'] = v ?? '',
                     ),
-
                     _buildFormField(
                       label: 'Investment Amount *',
                       keyboardType: TextInputType.number,
@@ -1054,11 +1163,11 @@ class _CustomersScreenState extends State<CustomersScreen>
                       },
                     ),
                     // _buildFormField(
-                    //   label: 'Balance Amount *',
-                    //   keyboardType: TextInputType.number,
-                    //   onSaved:
-                    //       (v) => formData['balance_amount'] = double.parse(v!),
-                    //   validator: (v) => v!.isEmpty ? 'Required' : null,
+                    // label: 'Balance Amount *',
+                    // keyboardType: TextInputType.number,
+                    // onSaved:
+                    // (v) => formData['balance_amount'] = double.parse(v!),
+                    // validator: (v) => v!.isEmpty ? 'Required' : null,
                     // ),
                     _buildDateField(
                       context,
@@ -1076,28 +1185,28 @@ class _CustomersScreenState extends State<CustomersScreen>
                     ),
                     // const Divider(),
                     // const Text(
-                    //   'Profit Schedule Configuration',
-                    //   style: TextStyle(fontWeight: FontWeight.bold),
+                    // 'Profit Schedule Configuration',
+                    // style: TextStyle(fontWeight: FontWeight.bold),
                     // ),
                     // DropdownButtonFormField<String>(
-                    //   value: 'percentage',
-                    //   items: const [
-                    //     DropdownMenuItem(
-                    //       value: 'fixed',
-                    //       child: Text('Fixed Amount'),
-                    //     ),
-                    //     DropdownMenuItem(
-                    //       value: 'percentage',
-                    //       child: Text('Percentage'),
-                    //     ),
-                    //   ],
-                    //   onChanged: (v) => formData['calcType'] = v,
-                    //   decoration: const InputDecoration(
-                    //     labelText: 'Calculation Type *',
-                    //   ),
+                    // value: 'percentage',
+                    // items: const [
+                    // DropdownMenuItem(
+                    // value: 'fixed',
+                    // child: Text('Fixed Amount'),
+                    // ),
+                    // DropdownMenuItem(
+                    // value: 'percentage',
+                    // child: Text('Percentage'),
+                    // ),
+                    // ],
+                    // onChanged: (v) => formData['calcType'] = v,
+                    // decoration: const InputDecoration(
+                    // labelText: 'Calculation Type *',
+                    // ),
                     // ),
                     _buildFormField(
-                      label: 'Profit Value *',
+                      label: 'Profit Value(Approx)*',
                       keyboardType: TextInputType.number,
                       onSaved:
                           (v) =>
@@ -1112,11 +1221,11 @@ class _CustomersScreenState extends State<CustomersScreen>
                       },
                     ),
                     // _buildFormField(
-                    //   label: 'Effective After (Months) *',
-                    //   keyboardType: TextInputType.number,
-                    //   onSaved:
-                    //       (v) => formData['effectiveAfter'] = int.parse(v!),
-                    //   validator: (v) => v!.isEmpty ? 'Required' : null,
+                    // label: 'Effective After (Months) *',
+                    // keyboardType: TextInputType.number,
+                    // onSaved:
+                    // (v) => formData['effectiveAfter'] = int.parse(v!),
+                    // validator: (v) => v!.isEmpty ? 'Required' : null,
                     // ),
                     _buildFormField(
                       label: 'Profit Duration *',
@@ -1133,7 +1242,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                         return null;
                       },
                     ),
-
                     _buildFormField(
                       label: 'Agreement Time Duration *',
                       keyboardType: TextInputType.number,
@@ -1161,18 +1269,14 @@ class _CustomersScreenState extends State<CustomersScreen>
                 onPressed: () async {
                   if (formKey.currentState!.validate()) {
                     formKey.currentState!.save();
-
                     // Debug: Print all form values
                     formData.forEach((key, value) {});
-
                     final investorProvider = context.read<InvestorProvider>();
                     final loadingProvider = context.read<LoadingProvider>();
                     final userId = _supabase.auth.currentUser?.id ?? '';
                     final userEmail = _supabase.auth.currentUser?.email ?? '';
-
                     try {
                       loadingProvider.startLoading();
-
                       final newInvestor = Investor(
                         id: _uuid.v4(),
                         name: formData['name'] as String,
@@ -1183,10 +1287,18 @@ class _CustomersScreenState extends State<CustomersScreen>
                         address: formData['address'] as String? ?? '',
                         initialInvestmentAmount:
                             (formData['investment'] as num?)?.toDouble() ?? 0.0,
-                        investmentDate: formData['investmentDate'] as DateTime,
-                        endDate: formData['end_date'] as DateTime,
+                        balanceAmount:
+                            (formData['investment'] as num?)?.toDouble() ?? 0.0,
+                        investmentDate:
+                            formData['investmentDate'] as DateTime? ??
+                            DateTime.now(),
+                        endDate:
+                            formData['end_date'] as DateTime? ??
+                            DateTime.now().add(
+                              Duration(days: 180),
+                            ), // 6 months default
                         profitCalculationType:
-                            formData['calcType'] as String? ?? 'percentage',
+                            formData['calcType'] as String? ?? 'approx',
                         profitDuration:
                             (formData['profit_duration'] as num?)?.toInt() ?? 1,
                         timeDuration:
@@ -1219,7 +1331,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                           ProfitSchedule(
                             id: _uuid.v4(),
                             calculationType:
-                                formData['calcType'] as String? ?? 'percentage',
+                                formData['calcType'] as String? ?? 'approx',
                             value:
                                 (formData['profitValue'] as num?)?.toDouble() ??
                                 0.0,
@@ -1235,7 +1347,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                         ],
                       );
                       await investorProvider.addInvestor(newInvestor, context);
-
                       if (context.mounted) {
                         Navigator.pop(context);
                         SupabaseExceptionHandler.showSuccessSnackbar(
@@ -1245,7 +1356,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                       }
                     } catch (e) {
                       loadingProvider.stopLoading();
-
                       if (context.mounted) {
                         SupabaseExceptionHandler.showErrorSnackbar(
                           context,
@@ -1279,7 +1389,6 @@ class _CustomersScreenState extends State<CustomersScreen>
       child: TextFormField(
         decoration: InputDecoration(
           labelText: label,
-
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         ),
         controller: controller,
@@ -1301,7 +1410,6 @@ class _CustomersScreenState extends State<CustomersScreen>
     if (initialDate != null) {
       controller.text = DateFormat('yyyy-MM-dd').format(initialDate);
     }
-
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 8),
       child: TextFormField(
@@ -1333,7 +1441,6 @@ class _CustomersScreenState extends State<CustomersScreen>
       action:
           '${investor.status == 'active' ? 'deactivate' : 'activate'} investor ${investor.name}',
     );
-
     if (verified && context.mounted) {
       final newStatus = investor.status == 'active' ? 'inactive' : 'active';
       final confirmed = await showDialog<bool>(
@@ -1356,7 +1463,6 @@ class _CustomersScreenState extends State<CustomersScreen>
               ],
             ),
       );
-
       if (confirmed == true) {
         try {
           final provider = Provider.of<InvestorProvider>(
@@ -1368,7 +1474,6 @@ class _CustomersScreenState extends State<CustomersScreen>
             newStatus: newStatus,
             expireDate: newStatus == 'inactive' ? DateTime.now() : null,
           );
-
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Status updated to ${newStatus}')),
@@ -1396,7 +1501,6 @@ class _CustomersScreenState extends State<CustomersScreen>
       context,
       listen: false,
     );
-
     // Verify admin first
     // final verified = await customerProvider.verifyAdmin(context);
     // if (!verified) return;
@@ -1408,10 +1512,10 @@ class _CustomersScreenState extends State<CustomersScreen>
     final addressController = TextEditingController(text: customer.address);
     // final idCodeController = TextEditingController(text: customer.investorIdCode);
     final investmentAmountController = TextEditingController(
-      text: customer.initialInvestmentAmount.toStringAsFixed(2),
+      text: customer.initialInvestmentAmount.toStringAsFixed(0),
     );
     final profitValueController = TextEditingController(
-      text: customer.profitValue.toStringAsFixed(2),
+      text: customer.profitValue.toStringAsFixed(0),
     );
     final investmentDateController = TextEditingController(
       text: DateFormat('yyyy-MM-dd').format(customer.investmentDate),
@@ -1419,9 +1523,13 @@ class _CustomersScreenState extends State<CustomersScreen>
     final endDateController = TextEditingController(
       text: DateFormat('yyyy-MM-dd').format(customer.endDate),
     );
-
     String selectedCalcType = customer.profitCalculationType;
-
+    final profitDurationController = TextEditingController(
+      text: customer.profitDuration.toString(),
+    );
+    final timeDurationController = TextEditingController(
+      text: customer.timeDuration.toString(),
+    );
     // Fetch current user name from profiles table
     String currentUserName = 'Unknown';
     if (user != null) {
@@ -1429,17 +1537,15 @@ class _CustomersScreenState extends State<CustomersScreen>
         final profile =
             await Supabase.instance.client
                 .from('profiles')
-                .select('name')
-                .eq('user_id', user.id)
+                .select('full_name')
+                .eq('id', user.id)
                 .single();
-
-        currentUserName = profile['name'] ?? 'Unknown';
+        currentUserName = profile['full_name'] ?? 'Unknown';
       } catch (e) {
         // Fallback to email if name not found
         currentUserName = user.email?.split('@').first ?? 'Unknown';
       }
     }
-
     showDialog(
       context: context,
       builder:
@@ -1472,7 +1578,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                     label: 'Email',
                     icon: Icons.email,
                   ),
-
                   _buildFormField(
                     controller: addressController,
                     label: 'Address',
@@ -1495,28 +1600,58 @@ class _CustomersScreenState extends State<CustomersScreen>
                     label: 'End Date *',
                     onSaved: (DateTime? newValue) {},
                   ),
-                  DropdownButtonFormField<String>(
-                    value: selectedCalcType,
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'fixed',
-                        child: Text('Fixed Amount'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'percentage',
-                        child: Text('Percentage'),
-                      ),
-                    ],
-                    onChanged: (v) => selectedCalcType = v!,
-                    decoration: const InputDecoration(
-                      labelText: 'Calculation Type *',
-                    ),
-                  ),
+                  // DropdownButtonFormField<String>(
+                  // value: selectedCalcType,
+                  // items: const [
+                  // DropdownMenuItem(
+                  // value: 'fixed',
+                  // child: Text('Fixed Amount'),
+                  // ),
+                  // DropdownMenuItem(
+                  // value: 'approx',
+                  // child: Text('Percentage'),
+                  // ),
+                  // ],
+                  // onChanged: (v) => selectedCalcType = v!,
+                  // decoration: const InputDecoration(
+                  // labelText: 'Calculation Type *',
+                  // ),
+                  // ),
                   _buildFormField(
                     controller: profitValueController,
                     label: 'Profit Value *',
                     keyboardType: TextInputType.number,
                     validator: (v) => v!.isEmpty ? 'Required' : null,
+                  ),
+                  _buildFormField(
+                    controller: profitDurationController,
+                    label: 'Profit Duration (months) *',
+                    keyboardType: TextInputType.number,
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return 'Required';
+                      final value = int.tryParse(v);
+                      if (value == null) return 'Must be a whole number';
+                      if (value <= 0) return 'Must be greater than 0';
+                      return null;
+                    },
+                  ),
+                  _buildFormField(
+                    controller: timeDurationController,
+                    label: 'Total Agreement Duration (months) *',
+                    keyboardType: TextInputType.number,
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return 'Required';
+                      final value = int.tryParse(v);
+                      if (value == null) return 'Must be a whole number';
+                      if (value <= 0) return 'Must be greater than 0';
+                      // Add validation to ensure it's a multiple of profit duration
+                      final profitDuration =
+                          int.tryParse(profitDurationController.text) ?? 1;
+                      if (value % profitDuration != 0) {
+                        return 'Must be a multiple of profit duration';
+                      }
+                      return null;
+                    },
                   ),
                 ],
               ),
@@ -1536,35 +1671,40 @@ class _CustomersScreenState extends State<CustomersScreen>
                   final endDate = DateFormat(
                     'yyyy-MM-dd',
                   ).parse(endDateController.text);
-
                   // Parse numeric values
                   final investmentAmount =
                       double.tryParse(investmentAmountController.text) ?? 0;
                   final profitValue =
                       double.tryParse(profitValueController.text) ?? 0;
-
+                  final profitDuration =
+                      int.tryParse(profitDurationController.text) ?? 1;
+                  final timeDuration =
+                      int.tryParse(timeDurationController.text) ?? 6;
                   debugPrint('Parsed values:');
                   debugPrint('Investment Amount: $investmentAmount');
                   debugPrint('Investment Date: $investmentDate');
                   debugPrint('End Date: $endDate');
-
-                  final updatedInvestor = customer.copyWith(
-                    name: nameController.text,
-                    cnic: cnicController.text,
-                    phone: phoneController.text,
-                    email: emailController.text,
-                    address: addressController.text,
-                    initialInvestmentAmount: investmentAmount,
-                    profitValue: profitValue,
-                    investmentDate: investmentDate,
-                    endDate: endDate,
-                    profitCalculationType: selectedCalcType,
-                    editedBy: currentUserName,
-                  );
-
+                  final updatedInvestor = customer
+                      .updateAgreementDetails(
+                        newProfitValue: profitValue,
+                        newTimeDuration: timeDuration,
+                        newProfitDuration: profitDuration,
+                      )
+                      .copyWith(
+                        name: nameController.text,
+                        cnic: cnicController.text,
+                        phone: phoneController.text,
+                        email: emailController.text,
+                        address: addressController.text,
+                        initialInvestmentAmount: investmentAmount,
+                        profitValue: profitValue,
+                        investmentDate: investmentDate,
+                        endDate: endDate,
+                        profitCalculationType: selectedCalcType,
+                        editedBy: currentUserName,
+                      );
                   debugPrint('Updated Investor before save:');
                   debugPrint(updatedInvestor.toString());
-
                   try {
                     await customerProvider.editWithVerification(
                       originalInvestor: updatedInvestor,
@@ -1599,29 +1739,25 @@ class _CustomersScreenState extends State<CustomersScreen>
       context,
       listen: false,
     );
-
     // Verify admin first
     // final verified = await customerProvider.verifyAdmin(context);
     // // if (!verified) return;
-
     // // Fetch current user name for audit trail
     String currentUserName = 'Unknown';
     // if (user != null) {
-    //   try {
-    //     final profile =
-    //         await Supabase.instance.client
-    //             .from('profiles')
-    //             .select('name')
-    //             .eq('user_id', user.id)
-    //             .single();
-
-    //     currentUserName = profile['name'] ?? 'Unknown';
-    //   } catch (e) {
-    //     print('Error fetching user profile: $e');
-    //     currentUserName = user.email?.split('@').first ?? 'Unknown';
-    //   }
+    // try {
+    // final profile =
+    // await Supabase.instance.client
+    // .from('profiles')
+    // .select('name')
+    // .eq('user_id', user.id)
+    // .single();
+    // currentUserName = profile['name'] ?? 'Unknown';
+    // } catch (e) {
+    // print('Error fetching user profile: $e');
+    // currentUserName = user.email?.split('@').first ?? 'Unknown';
     // }
-
+    // }
     showDialog(
       context: context,
       builder:
@@ -1748,7 +1884,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                     _buildDetailRow('Address:', customer.address ?? 'N/A'),
                     _buildDetailRow(
                       'Investment Amount:',
-                      '${customer.initialInvestmentAmount.toStringAsFixed(2)}',
+                      '${customer.initialInvestmentAmount.toStringAsFixed(0)}',
                     ),
                     _buildDetailRow(
                       'Agreement Duration:',
@@ -1765,7 +1901,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                           Supabase.instance.client
                               .from('profiles')
                               .select('name')
-                              .eq('user_id', customer.createdBy)
+                              .eq('id', customer.createdBy)
                               .maybeSingle(),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState ==
@@ -1854,7 +1990,7 @@ class _CustomersScreenState extends State<CustomersScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Available Balance: ${investor.unpaidProfitBalance.toStringAsFixed(2)}',
+                  'Available Balance: ${investor.unpaidProfitBalance.toStringAsFixed(0)}',
                 ),
                 TextField(
                   controller: amountController,
@@ -1873,7 +2009,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                   onChanged: (value) {
                     if (value == 'full') {
                       amountController.text = investor.unpaidProfitBalance
-                          .toStringAsFixed(2);
+                          .toStringAsFixed(0);
                     }
                   },
                 ),
@@ -1934,7 +2070,6 @@ class _CustomersScreenState extends State<CustomersScreen>
                   value,
                   style: TextStyle(
                     fontSize: 11.856.sp, // Increased by 20% more
-
                     color: Colors.white,
                     fontWeight: FontWeight.w500,
                   ),
@@ -1948,64 +2083,71 @@ class _CustomersScreenState extends State<CustomersScreen>
   }
 
   void _generateCustomerPdf(Investor investor) async {
-    final pdf = pw.Document();
-    final currencyFormat = NumberFormat("#,##0.00");
-    final dateFormat = DateFormat('dd-MMM-yyyy');
-
-    // Helper functions
-    String formatAmount(double amount) => '${currencyFormat.format(amount)}';
-    String formatDate(DateTime date) => dateFormat.format(date);
-    String safeDate(DateTime? date) => date != null ? formatDate(date) : 'N/A';
-
-    // Calculate installments
-    final totalMonths = investor.timeDuration;
-    final interval = investor.profitDuration;
-    final totalInstallments = totalMonths! ~/ interval;
-    final monthlyProfit = _calculateMonthlyProfit(investor);
-
-    // Add return transactions table if any returns exist
-    final returns = await _supabase
-        .from('return_transactions')
-        .select()
-        .eq('investor_id', investor.id);
-
-    // Get all unique processed_by UIDs
-    final processedByUids =
-        returns
-            .map((t) => t['processed_by']?.toString())
-            .whereType<String>()
-            .toSet()
-            .toList();
-
-    // Fetch profiles for these UIDs
-    final profiles =
-        processedByUids.isNotEmpty
-            ? await _supabase
-                .from('profiles')
-                .select()
-                .inFilter('user_id', processedByUids)
-            : [];
-
-    // Create a map of UID to profile name
-    final profileMap = {
-      for (var profile in profiles)
-        profile['user_id']: '${profile['name'] ?? ''}'.trim(),
-    };
-
+    final loadingProvider = Provider.of<LoadingProvider>(
+      context,
+      listen: false,
+    );
+    loadingProvider.startLoading();
     try {
+      final pdf = pw.Document();
+      final currencyFormat = NumberFormat("#,##0.00");
+      final dateFormat = DateFormat('dd-MMM-yyyy');
+      // Helper functions
+      String formatAmount(double amount) => '${currencyFormat.format(amount)}';
+      String formatDate(DateTime date) => dateFormat.format(date);
+      String safeDate(String? dateString) {
+        if (dateString == null) return 'N/A';
+        try {
+          return dateFormat.format(DateTime.parse(dateString));
+        } catch (e) {
+          print('Date parsing error for "$dateString": $e');
+          return 'N/A';
+        }
+      }
+
+      // Calculate installments
+      final totalMonths = investor.timeDuration;
+      final interval = investor.profitDuration;
+      final totalInstallments = totalMonths! ~/ interval;
+      print('=== Generating PDF for ${investor.name} ===');
+      print('Investor ID: ${investor.id}');
+      print('Return amount in investor object: ${investor.returnAmount}');
+      // Fetch return transactions
+      print('Fetching return transactions...');
+      final returnsResponse = await _supabase
+          .from('return_transactions')
+          .select('*')
+          .eq('investor_id', investor.id)
+          .order('return_date', ascending: false);
+      final returns = returnsResponse as List<dynamic>;
+      print('Found ${returns.length} return transactions in DB');
+      // DEBUG: Print first 2 transactions to check structure
+      if (returns.isNotEmpty) {
+        print('DEBUG - First return transaction:');
+        print(' Date: ${returns[0]['return_date']}');
+        print(' Amount: ${returns[0]['amount']}');
+        print(' Notes: ${returns[0]['notes']}');
+        print(' Type of amount: ${returns[0]['amount'].runtimeType}');
+        print(' Type of date: ${returns[0]['return_date'].runtimeType}');
+      }
       pdf.addPage(
-        pw.Page(
+        pw.MultiPage(
           margin: const pw.EdgeInsets.all(30),
-          build: (pw.Context context) {
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
+          build:
+              (pw.Context context) => [
                 // Header Section
                 pw.Center(
                   child: pw.Column(
                     children: [
                       pw.Text(
                         'RELIABLE MARKETING NETWORK PVT LTD.',
+                        style: pw.TextStyle(
+                          fontSize: 20,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        'A P S',
                         style: pw.TextStyle(
                           fontSize: 20,
                           fontWeight: pw.FontWeight.bold,
@@ -2019,7 +2161,12 @@ class _CustomersScreenState extends State<CustomersScreen>
                     ],
                   ),
                 ),
-
+                // TEST: Add a simple text to verify PDF is working
+                // pw.Text(
+                //   'TEST: This PDF contains ${returns.length} return transactions',
+                //   style: pw.TextStyle(fontSize: 12, color: PdfColors.red),
+                // ),
+                // pw.SizedBox(height: 10),
                 // Investor Information
                 pw.Text(
                   'Investor Information',
@@ -2036,13 +2183,18 @@ class _CustomersScreenState extends State<CustomersScreen>
                     1: const pw.FlexColumnWidth(3),
                   },
                   children: [
-                    _buildInfoRow('Name:', investor.name),
+                    _buildInfoRow(
+                      'Name:',
+                      investor.status == 'active'
+                          ? investor.name.toString().toUpperCase()
+                          : investor.name.toString().toLowerCase() +
+                              ' (Inactive)',
+                    ),
                     _buildInfoRow('CNIC No.:', investor.cnic),
                     _buildInfoRow('Phone No.:', investor.phone),
                   ],
                 ),
                 pw.SizedBox(height: 20),
-
                 // File/Plot Information
                 pw.Text(
                   'File/Plot Information',
@@ -2062,10 +2214,10 @@ class _CustomersScreenState extends State<CustomersScreen>
                   },
                   children: [
                     _buildFilePlotRow(
-                      'Investment Amount:',
+                      'Initial Investment:',
                       formatAmount(investor.initialInvestmentAmount),
                       'Start Date:',
-                      safeDate(investor.investmentDate),
+                      safeDate(investor.investmentDate.toIso8601String()),
                     ),
                     _buildFilePlotRow(
                       'Time Duration:',
@@ -2073,19 +2225,17 @@ class _CustomersScreenState extends State<CustomersScreen>
                           ? '${investor.timeDuration} Months'
                           : 'N/A',
                       'End Date:',
-                      safeDate(investor.endDate),
+                      safeDate(investor.endDate.toIso8601String()),
                     ),
                     _buildFilePlotRow(
                       'Profit Duration',
                       investor.profitDuration.toString(),
                       'Monthly Profit:',
-                      formatAmount(investor.profitValue),
+                      formatAmount(investor.profitValue) + ' Approx.',
                     ),
                   ],
                 ),
-
                 pw.SizedBox(height: 10),
-
                 // Amount Details
                 pw.Text(
                   'Amount Details',
@@ -2111,7 +2261,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                             ),
                             pw.SizedBox(width: 15),
                             pw.Text(
-                              investor.initialInvestmentAmount.toString(),
+                              formatAmount(investor.initialInvestmentAmount),
                               style: pw.TextStyle(fontSize: 8),
                             ),
                           ],
@@ -2127,7 +2277,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                             ),
                             pw.SizedBox(width: 15),
                             pw.Text(
-                              investor.returnAmount.toString(),
+                              formatAmount(investor.returnAmount),
                               style: pw.TextStyle(fontSize: 8),
                             ),
                           ],
@@ -2143,7 +2293,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                             ),
                             pw.SizedBox(width: 15),
                             pw.Text(
-                              investor.balanceAmount.toString(),
+                              formatAmount(investor.balanceAmount),
                               style: pw.TextStyle(fontSize: 8),
                             ),
                           ],
@@ -2152,9 +2302,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                     ),
                   ],
                 ),
-
                 pw.SizedBox(height: 20),
-
                 // Installment Table
                 pw.Table(
                   border: pw.TableBorder.all(),
@@ -2162,29 +2310,43 @@ class _CustomersScreenState extends State<CustomersScreen>
                     pw.TableRow(
                       children:
                           [
-                            'Sr.No',
                             'Month',
                             'Due Date',
                             'Amount',
-                            'Status',
+                            'Paid Date',
+                            'Paid Amount',
                           ].map((t) => _buildHeaderCell(t)).toList(),
                     ),
                     for (int i = 1; i <= totalInstallments; i++)
                       pw.TableRow(
                         children:
                             [
-                                  i.toString(),
                                   'M$i',
-                                  dateFormat.format(
+                                  formatDate(
                                     _getDueDate(
                                       investor.investmentDate,
                                       i,
                                       interval,
                                     ),
                                   ),
-                                  '${monthlyProfit.toStringAsFixed(2)}',
-                                  investor.paidInstallments['m$i'] == true
-                                      ? 'Paid'
+                                  formatAmount(
+                                    _calculateMonthlyProfit(investor),
+                                  ),
+                                  investor.paidInstallments['m$i']?['paid'] ==
+                                              true &&
+                                          investor.paidInstallments['m$i']?['paidDate'] !=
+                                              null
+                                      ? safeDate(
+                                        investor
+                                            .paidInstallments['m$i']!['paidDate'],
+                                      )
+                                      : 'Not Paid',
+                                  investor.paidInstallments['m$i']?['paid'] ==
+                                          true
+                                      ? formatAmount(
+                                        investor.paidInstallments['m$i']!['paidAmount'] ??
+                                            0,
+                                      )
                                       : 'Pending',
                                 ]
                                 .map(
@@ -2197,121 +2359,115 @@ class _CustomersScreenState extends State<CustomersScreen>
                       ),
                   ],
                 ),
-
+                // Return Transactions Section - SIMPLIFIED VERSION
+                if (returns.isNotEmpty) pw.NewPage(),
                 pw.SizedBox(height: 20),
-
-                // Add Return Transactions Section
-                if (investor.returnAmount > 0)
-                  pw.Column(
+                pw.Text(
+                  'Return Transactions',
+                  style: pw.TextStyle(
+                    fontSize: 14,
+                    fontWeight: pw.FontWeight.bold,
+                    decoration: pw.TextDecoration.underline,
+                  ),
+                ),
+                pw.SizedBox(height: 10),
+                if (returns.isEmpty)
+                  pw.Text(
+                    'No return transactions found.',
+                    style: pw.TextStyle(fontSize: 10),
+                  ),
+                if (returns.isNotEmpty)
+                  pw.Table(
+                    border: pw.TableBorder.all(),
                     children: [
-                      pw.SizedBox(height: 20),
-                      pw.Table(
-                        border: pw.TableBorder.all(),
+                      // Header Row
+                      pw.TableRow(
                         children: [
-                          pw.TableRow(
-                            children:
-                                [
-                                  'Date',
-                                  'Processed By',
-                                  'Amount',
-                                ].map((t) => _buildHeaderCell(t)).toList(),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Center(
+                              child: pw.Text(
+                                'Date',
+                                style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold,
+                                ),
+                              ),
+                            ),
                           ),
-                          ...returns.map((transaction) {
-                            final processedByUid =
-                                transaction['processed_by']?.toString();
-                            final processedByName =
-                                processedByUid != null
-                                    ? profileMap[processedByUid] ?? 'Unknown'
-                                    : 'N/A';
-
-                            return pw.TableRow(
-                              children:
-                                  [
-                                        safeDate(
-                                          transaction['return_date'] != null
-                                              ? DateTime.parse(
-                                                transaction['return_date'],
-                                              )
-                                              : null,
-                                        ),
-                                        processedByName,
-                                        currencyFormat.format(
-                                          transaction['amount'] ?? 0,
-                                        ),
-                                      ]
-                                      .map(
-                                        (t) => _buildDataCell(
-                                          t,
-                                          alignment: pw.Alignment.center,
-                                        ),
-                                      )
-                                      .toList(),
-                            );
-                          }).toList(),
-                        ],
-                      ),
-                      pw.SizedBox(height: 15),
-                      pw.Table(
-                        border: pw.TableBorder.all(
-                          color: PdfColors.black,
-                          width: 1,
-                        ),
-                        columnWidths: {
-                          0: const pw.FlexColumnWidth(2),
-                          1: const pw.FlexColumnWidth(2),
-                        },
-                        children: [
-                          pw.TableRow(
-                            children: [
-                              pw.Container(
-                                padding: const pw.EdgeInsets.symmetric(
-                                  vertical: 6,
-                                  horizontal: 10,
-                                ),
-                                alignment: pw.Alignment.center,
-                                child: pw.Text(
-                                  'Total Returns:',
-                                  style: pw.TextStyle(
-                                    fontWeight: pw.FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                  textAlign: pw.TextAlign.center,
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Center(
+                              child: pw.Text(
+                                'Amount',
+                                style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold,
                                 ),
                               ),
-                              pw.Container(
-                                padding: const pw.EdgeInsets.symmetric(
-                                  vertical: 6,
-                                  horizontal: 10,
-                                ),
-                                alignment: pw.Alignment.center,
-                                decoration: pw.BoxDecoration(
-                                  border: pw.Border(
-                                    left: pw.BorderSide(
-                                      color: PdfColors.grey700,
-                                      width: 1,
-                                    ),
-                                  ),
-                                ),
-                                child: pw.Text(
-                                  currencyFormat.format(investor.returnAmount),
-                                  style: pw.TextStyle(
-                                    fontWeight: pw.FontWeight.normal,
-                                    fontSize: 12,
-                                  ),
-                                  textAlign: pw.TextAlign.center,
+                            ),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Center(
+                              child: pw.Text(
+                                'Notes',
+                                style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold,
                                 ),
                               ),
-                            ],
+                            ),
                           ),
                         ],
                       ),
-                      pw.SizedBox(height: 10),
+                      // Data Rows - SIMPLIFIED FOR TESTING
+                      ...returns.map((transaction) {
+                        // Parse amount - handle different types
+                        double amount = 0;
+                        if (transaction['amount'] != null) {
+                          if (transaction['amount'] is int) {
+                            amount = transaction['amount'].toDouble();
+                          } else if (transaction['amount'] is double) {
+                            amount = transaction['amount'];
+                          } else if (transaction['amount'] is String) {
+                            amount =
+                                double.tryParse(transaction['amount']) ?? 0;
+                          }
+                        }
+                        return pw.TableRow(
+                          children: [
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.all(5),
+                              child: pw.Center(
+                                child: pw.Text(
+                                  safeDate(transaction['return_date']),
+                                  style: pw.TextStyle(fontSize: 8),
+                                ),
+                              ),
+                            ),
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.all(5),
+                              child: pw.Center(
+                                child: pw.Text(
+                                  formatAmount(amount),
+                                  style: pw.TextStyle(fontSize: 8),
+                                ),
+                              ),
+                            ),
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.all(5),
+                              child: pw.Center(
+                                child: pw.Text(
+                                  transaction['notes']?.toString() ?? '',
+                                  style: pw.TextStyle(fontSize: 8),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      }).toList(),
                     ],
                   ),
-
                 // Spacer to push the footer to the bottom
-                pw.Spacer(),
-
+                pw.SizedBox(height: 20),
                 // Footer aligned at the page end
                 pw.Align(
                   alignment: pw.Alignment.bottomRight,
@@ -2321,25 +2477,29 @@ class _CustomersScreenState extends State<CustomersScreen>
                   ),
                 ),
               ],
-            );
-          },
         ),
       );
-
       // Save PDF
       final directory = await getDownloadsDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final cleanName = investor.name.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
       final filePath = '${directory!.path}/${cleanName}_$timestamp.pdf';
-
       await File(filePath).writeAsBytes(await pdf.save());
-
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('PDF saved to: $filePath')));
+        loadingProvider.stopLoading();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'PDF saved to: $filePath. Found ${returns.length} return transactions.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Open the PDF
+        OpenFile.open(filePath);
       }
     } catch (e) {
+      loadingProvider.stopLoading();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2351,13 +2511,98 @@ class _CustomersScreenState extends State<CustomersScreen>
     }
   }
 
+  // Helper methods for PDF
+  // Helper functions
+  pw.TableRow _buildInfoRow(String label, String value) {
+    return pw.TableRow(
+      children: [
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(vertical: 2),
+          child: pw.Text(
+            label,
+            style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+          ),
+        ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(vertical: 2),
+          child: pw.Text(value, style: pw.TextStyle(fontSize: 8)),
+        ),
+      ],
+    );
+  }
+
+  // Add these helper functions in _CustomersScreenState class
+  String _formatAmount(double amount) {
+    final currencyFormat = NumberFormat("#,##0.00");
+    return '${currencyFormat.format(amount)}';
+  }
+
+  String _formatDate(DateTime date) {
+    final dateFormat = DateFormat('dd-MMM-yyyy');
+    return dateFormat.format(date);
+  }
+
+  String _safeDate(String? dateString) {
+    if (dateString == null) return 'N/A';
+    try {
+      final dateFormat = DateFormat('dd-MMM-yyyy');
+      return dateFormat.format(DateTime.parse(dateString));
+    } catch (e) {
+      return 'N/A';
+    }
+  }
+
+  pw.TableRow _buildFinancialRow(
+    String label,
+    double amount,
+    double balance, {
+    bool isBold = false,
+  }) {
+    return pw.TableRow(
+      children: [
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(6),
+          child: pw.Text(
+            label,
+            style: pw.TextStyle(
+              fontSize: 9,
+              fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+          ),
+        ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(6),
+          child: pw.Text(
+            _formatAmount(amount),
+            style: pw.TextStyle(
+              fontSize: 9,
+              fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+            textAlign: pw.TextAlign.right,
+          ),
+        ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(6),
+          child: pw.Text(
+            _formatAmount(balance),
+            style: pw.TextStyle(
+              fontSize: 9,
+              fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+            textAlign: pw.TextAlign.right,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ß
   Future<void> _generateInvestorDocumentsPdf(Investor investor) async {
     final loadingProvider = Provider.of<LoadingProvider>(
       context,
       listen: false,
     );
     loadingProvider.startLoading();
-
     try {
       // Fetch all documents for this investor
       final response = await _supabase
@@ -2365,20 +2610,16 @@ class _CustomersScreenState extends State<CustomersScreen>
           .select()
           .eq('investor_id', investor.id)
           .order('created_at');
-
       final documents = List<Map<String, dynamic>>.from(response);
-
       if (documents.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No documents found for this investor')),
         );
         return;
       }
-
       // Create PDF
       final pdf = pw.Document();
       final investorName = investor.name ?? 'Investor';
-
       // Add cover page
       pdf.addPage(
         pw.Page(
@@ -2409,13 +2650,11 @@ class _CustomersScreenState extends State<CustomersScreen>
           },
         ),
       );
-
       // Process each document
       for (var doc in documents) {
         final mimeType = lookupMimeType(doc['document_name'] ?? '') ?? '';
         final docName = doc['document_name'] ?? 'Document';
         final docUrl = doc['document_url'];
-
         if (mimeType.startsWith('image/')) {
           try {
             final imageBytes = await _downloadFile(docUrl);
@@ -2498,20 +2737,16 @@ class _CustomersScreenState extends State<CustomersScreen>
           );
         }
       }
-
       // Save PDF to downloads
       final dir = await getDownloadsDirectory();
       if (dir == null) throw Exception('Could not access downloads directory');
-
       final fileName =
           '${investorName.replaceAll(' ', '_')}_Documents_${DateTime.now().millisecondsSinceEpoch}.pdf';
       final filePath = path.join(dir.path, fileName);
       final file = File(filePath);
       await file.writeAsBytes(await pdf.save());
-
       // Open the PDF
       OpenFile.open(filePath);
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('PDF saved to Downloads: $fileName')),
       );
@@ -2530,7 +2765,6 @@ class _CustomersScreenState extends State<CustomersScreen>
       final httpClient = HttpClient();
       final request = await httpClient.getUrl(Uri.parse(url));
       final response = await request.close();
-
       if (response.statusCode == HttpStatus.ok) {
         return await consolidateHttpClientResponseBytes(response);
       }
@@ -2540,40 +2774,35 @@ class _CustomersScreenState extends State<CustomersScreen>
     }
   }
 
-  DateTime _getDueDate(DateTime startDate, int installment, int interval) {
-    return DateTime(
-      startDate.year,
-      startDate.month + (installment * interval),
-      startDate.day,
-    );
-  }
-
-  double _calculateMonthlyProfit(Investor investor) {
-    if (investor.profitCalculationType == 'percentage') {
-      return investor.initialInvestmentAmount * (investor.profitValue / 100);
-    }
-    return investor.profitValue;
-  }
-
-  // Helper functions
-  pw.TableRow _buildInfoRow(String label, String value) {
-    return pw.TableRow(
-      children: [
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 2),
-          child: pw.Text(
-            label,
-            style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
-          ),
-        ),
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 2),
-          child: pw.Text(value, style: pw.TextStyle(fontSize: 8)),
-        ),
-      ],
-    );
-  }
-
+  // DateTime _getDueDate(DateTime startDate, int installment, int interval) {
+  // return DateTime(
+  // startDate.year,
+  // startDate.month + (installment * interval),
+  // startDate.day,
+  // );
+  // }
+  // double _calculateMonthlyProfit(Investor investor) {
+  // // Simply return the manually entered profit value
+  // return investor.profitValue;
+  // }
+  // // Helper functions
+  // pw.TableRow _buildInfoRow(String label, String value) {
+  // return pw.TableRow(
+  // children: [
+  // pw.Padding(
+  // padding: const pw.EdgeInsets.symmetric(vertical: 2),
+  // child: pw.Text(
+  // label,
+  // style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+  // ),
+  // ),
+  // pw.Padding(
+  // padding: const pw.EdgeInsets.symmetric(vertical: 2),
+  // child: pw.Text(value, style: pw.TextStyle(fontSize: 8)),
+  // ),
+  // ],
+  // );
+  // }
   pw.TableRow _buildFilePlotRow(
     String label1,
     String value1,
@@ -2609,40 +2838,52 @@ class _CustomersScreenState extends State<CustomersScreen>
   }
 
   pw.Widget _buildHeaderCell(String text) {
-    return pw.Padding(
+    return pw.Container(
       padding: const pw.EdgeInsets.all(5),
+      decoration: pw.BoxDecoration(color: PdfColors.grey300),
       child: pw.Center(
         child: pw.Text(
           text,
-          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
         ),
       ),
     );
   }
 
   pw.Widget _buildDataCell(String text, {pw.Alignment? alignment}) {
-    return pw.Padding(
+    return pw.Container(
       padding: const pw.EdgeInsets.all(5),
       child: pw.Align(
         alignment: alignment ?? pw.Alignment.centerLeft,
-        child: pw.Text(text),
+        child: pw.Text(text, style: pw.TextStyle(fontSize: 8)),
       ),
     );
   }
 
-  // Update helper functions
-  // Updated helper functions
-  double _calculateReturnAmount(Investor investor) {
-    return investor.profitSchedules.fold(0.0, (sum, schedule) {
-      final amount =
-          schedule.calculationType == 'percentage'
-              ? investor.initialInvestmentAmount * (schedule.value / 100)
-              : schedule.value;
-      return sum + amount;
-    });
+  DateTime _getDueDate(DateTime startDate, int installment, int interval) {
+    return DateTime(
+      startDate.year,
+      startDate.month + (installment * interval),
+      startDate.day,
+    );
   }
 
-  String _getProfitMonth(int effectiveMonths) {
-    return 'Month $effectiveMonths';
+  double _calculateMonthlyProfit(Investor investor) {
+    return investor.profitValue;
   }
+
+  // // Update helper functions
+  // // Updated helper functions
+  // double _calculateReturnAmount(Investor investor) {
+  // return investor.profitSchedules.fold(0.0, (sum, schedule) {
+  // final amount =
+  // schedule!.calculationType == 'percentage'
+  // ? investor.initialInvestmentAmount * (schedule.value / 100)
+  // : schedule.value;
+  // return sum + amount;
+  // });
+  // }
+  // String _getProfitMonth(int effectiveMonths) {
+  // return 'Month $effectiveMonths';
+  // }
 }
