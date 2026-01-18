@@ -50,10 +50,6 @@ class CashFlowProvider with ChangeNotifier {
           .select()
           .order('created_at', ascending: false);
 
-      print(
-        'Total wallet transactions to migrate: ${walletTransactions.length}',
-      );
-
       int migratedCount = 0;
       int skippedCount = 0;
 
@@ -89,15 +85,7 @@ class CashFlowProvider with ChangeNotifier {
         //   print('Kept credit: $description - $amount');
         // }
       }
-
-      print('=== Migration completed ===');
-      print(
-        'Migrated $migratedCount debit transactions to cash_flow_transactions',
-      );
-      print('Kept $skippedCount credit transactions in wallet_transactions');
-    } catch (e) {
-      print('Error during migration: $e');
-    }
+    } catch (e) {}
   }
 
   void resetFormState() {
@@ -399,12 +387,12 @@ class CashFlowProvider with ChangeNotifier {
           .eq('id', 1);
 
       // Add wallet transaction
-      // await _supabase.from('wallet_transactions').insert({
-      //   'amount': amount,
-      //   'description': description,
-      //   'type': 'credit',
-      //   'created_at': DateTime.now().toIso8601String(),
-      // });
+      await _supabase.from('wallet_transactions').insert({
+        'amount': amount,
+        'description': description,
+        'type': 'credit',
+        'created_at': DateTime.now().toIso8601String(),
+      });
 
       // Reload to ensure consistency
       await loadWalletBalance();

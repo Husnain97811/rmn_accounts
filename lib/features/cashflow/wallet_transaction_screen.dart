@@ -83,8 +83,13 @@ class _WalletTransactionsScreenState extends State<WalletTransactionsScreen>
               return description.contains(searchText);
             }).toList();
 
-    // 6. Sort by date (newest first)
-    filtered.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    // 6. Sort by date in descending order (newest first)
+    // This ensures all transactions from the same date are grouped together
+    // and sorted with newest date at the top
+    filtered.sort((a, b) {
+      // Compare full DateTime objects to consider both date and time
+      return b.createdAt.compareTo(a.createdAt);
+    });
 
     return filtered;
   }

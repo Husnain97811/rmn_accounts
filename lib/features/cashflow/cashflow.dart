@@ -627,7 +627,9 @@ class _CashFlowScreenState extends State<CashFlowScreen>
                           ), // Adjusted for dialog size
                         ),
                         subtitle: Text(
-                          DateFormat('dd MMM yyyy').format(selectedDate),
+                          DateFormat(
+                            'dd MMM yyyy hh:mm:ss a',
+                          ).format(selectedDate),
                           style: TextStyle(fontSize: 12),
                         ),
                         trailing: Container(
